@@ -64,6 +64,7 @@ app/
   manifest.json   extension manifest (Manifest V3, side panel)
   background.js   opens the side panel; schedules the daily reminder
   icons/          app icons (16, 32, 48, 128 px + SVG)
+store-assets/     store screenshots, promo tiles, icon and Edge logo (see its README)
 brand/
   checkrow-icon.svg, checkrow-icon-dark.svg, checkrow-favicon.svg
   png/            icon exports

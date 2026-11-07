@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "CheckRow",
   "short_name": "CheckRow",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "A clean, Workspace-style to-do list: lists, due dates, priorities and stars, right in your browser's side panel.",
   "icons": {
     "16": "icons/checkrow-16.png",
