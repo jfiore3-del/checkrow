@@ -506,9 +506,10 @@
     main.innerHTML =
       `<div class="wrap">` +
       `<div class="main-head"><h1>${esc(v.title)}</h1><div class="head-actions">` +
-      `<label class="sort"><span class="sort-label">Sort</span><select id="sortSel" aria-label="Sort tasks by">` +
+      `<label class="sort"><span class="sort-label">Sort</span><span class="select-wrap">` +
+      `<select id="sortSel" class="select pill" aria-label="Sort tasks by">` +
       SORTS.map(([k, label]) => `<option value="${k}"${state.sort === k ? ' selected' : ''}>${label}</option>`).join('') +
-      `</select></label>` +
+      `</select>${icon('chevron', 'select-chev')}</span></label>` +
       (v.list ? `<button type="button" class="icon-btn" data-action="list-menu" aria-label="List options" aria-haspopup="menu" aria-expanded="false">${icon('more', 'fill')}</button>` : '') +
       `</div></div>` +
       `<form class="add-row" id="addForm" autocomplete="off"><span class="add-ico">${icon('plus')}</span>` +
@@ -567,9 +568,9 @@
       PRI.map((p, i) => `<label class="seg-opt pri-${i}"><input type="radio" name="dPri" value="${i}"${t.priority === i ? ' checked' : ''}>` +
         `<span>${i ? icon('flag') : ''}${p}</span></label>`).join('') +
       `</div></fieldset>` +
-      `<div class="field"><label for="dList">List</label><select id="dList" class="input">` +
+      `<div class="field"><label for="dList">List</label><span class="select-wrap block"><select id="dList" class="input select">` +
       state.lists.map((l) => `<option value="${esc(l.id)}"${l.id === t.listId ? ' selected' : ''}>${esc(l.name)}</option>`).join('') +
-      `</select></div>` +
+      `</select>${icon('chevron', 'select-chev')}</span></div>` +
       `<p class="created">Created ${esc(created)}</p>` +
       `<div class="details-foot">` +
       `<button type="button" class="btn" data-action="details-done">${icon('check')}${t.done ? 'Mark not done' : 'Mark done'}</button>` +
@@ -584,6 +585,7 @@
     const detailsOverlay = overlayDetailsMQ.matches && !details.hidden;
     scrim.hidden = !(sidebarOverlay || detailsOverlay);
     openTabBtn.hidden = !(isExtension && narrowMQ.matches);
+    searchInput.placeholder = narrowMQ.matches ? 'Search' : 'Search tasks';
   }
 
   // ---------- Theme ----------

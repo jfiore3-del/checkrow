@@ -227,12 +227,33 @@ body.sidebar-collapsed .sidebar { display: none; }
 .main-head { display: flex; align-items: center; gap: 12px; min-height: 48px; margin-bottom: 8px; }
 .main-head h1 { flex: 1; min-width: 0; font-size: 24px; letter-spacing: -.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .head-actions { display: flex; align-items: center; gap: 4px; }
-.sort { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
-.sort select {
-  height: 36px; padding: 0 28px 0 12px;
+.sort { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 13px; }
+
+/* Custom-styled selects: native control for behavior, our own chevron and spacing. */
+.select-wrap { position: relative; display: inline-flex; align-items: center; }
+.select-wrap.block { display: flex; }
+.select {
+  -webkit-appearance: none; appearance: none;
+  cursor: pointer;
+}
+.select.pill {
+  height: 34px; padding: 0 32px 0 14px;
   border: 1px solid var(--border); border-radius: 999px;
   background: var(--surface); color: var(--text);
+  font-size: 13px; font-weight: 500; line-height: 32px;
 }
+.select.pill:hover { background: var(--hover); }
+.select.input { padding-right: 36px; }
+.select-wrap.block .select { width: 100%; }
+.select-chev {
+  position: absolute; right: 11px;
+  width: 15px; height: 15px;
+  transform: rotate(90deg);
+  color: var(--text-2);
+  pointer-events: none;
+}
+.select-wrap.block .select-chev { right: 13px; }
+.select option { background: var(--surface); color: var(--text); }
 
 .add-row {
   display: flex; align-items: center; gap: 4px;
@@ -501,7 +522,12 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; }
 
 @media (max-width: 560px) {
   .brand-name { display: none; }
-  .search { height: 42px; padding: 0 12px; }
+  .topbar { gap: 4px; padding: 0 8px 0 4px; }
+  .brand { padding-left: 0; }
+  .brand img { width: 30px; height: 30px; }
+  .search { height: 38px; padding: 0 12px 0 10px; gap: 6px; }
+  .search .ico { width: 18px; height: 18px; }
+  .search input { font-size: 14px; }
   .main-head h1 { font-size: 20px; }
   .sort-label { display: none; }
 }
