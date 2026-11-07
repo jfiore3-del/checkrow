@@ -140,7 +140,7 @@
   }
 
   let state = freshState(); // replaced in init()
-  const ui = { search: '', openTaskId: null, dragId: null };
+  const ui = { search: '', openTaskId: null, dragId: null, draft: { due: '', priority: 0 } };
 
   // ---------- Sync (Chrome/Edge account sync via chrome.storage.sync) ----------
   // No server: the browser syncs this storage across every computer signed in to the
@@ -372,12 +372,12 @@
   function topOrder(listId) {
     return Math.min(0, ...state.tasks.filter((t) => t.listId === listId).map((t) => t.order)) - 1;
   }
-  function addTask(title) {
+  function addTask(title, { due = '', priority = 0 } = {}) {
     const listId = listById(state.view) ? state.view : state.lists[0].id;
     const t = {
       id: uid(), listId, title, notes: '',
-      due: state.view === 'today' ? todayKey() : '',
-      priority: 0,
+      due: due || (state.view === 'today' ? todayKey() : ''),
+      priority,
       starred: state.view === 'starred',
       done: false, completedAt: 0, createdAt: Date.now(),
       order: topOrder(listId),
@@ -452,8 +452,16 @@
 
   function taskRow(t, v, canDrag) {
     const meta = [];
-    if (t.due) meta.push(`<span class="chip ${dueClass(t)}">${icon('calendar')}${esc(fmtDue(t.due))}</span>`);
-    if (t.priority) meta.push(`<span class="chip pri-${t.priority}">${icon('flag')}${PRI[t.priority]}</span>`);
+    if (t.due) {
+      meta.push(t.done
+        ? `<span class="chip">${icon('calendar')}${esc(fmtDue(t.due))}</span>`
+        : `<button type="button" class="chip chip-btn ${dueClass(t)}" data-action="pick-due" aria-label="Due ${esc(fmtDue(t.due))}. Change due date">${icon('calendar')}${esc(fmtDue(t.due))}</button>`);
+    }
+    if (t.priority) {
+      meta.push(t.done
+        ? `<span class="chip">${icon('flag')}${PRI[t.priority]}</span>`
+        : `<button type="button" class="chip chip-btn pri-${t.priority}" data-action="pick-pri" aria-label="${PRI[t.priority]} priority. Change priority">${icon('flag')}${PRI[t.priority]}</button>`);
+    }
     if (!v.list) {
       const l = listById(t.listId);
       if (l) meta.push(`<span class="chip">${esc(l.name)}</span>`);
@@ -468,7 +476,11 @@
       `<input class="task-title" value="${esc(t.title)}" placeholder="Title" aria-label="Task title"${t.done ? ' readonly' : ''}>` +
       (meta.length ? `<div class="meta" data-action="open">${meta.join('')}</div>` : '') +
       `</div>` +
+      (t.starred ? `<span class="star-badge" aria-hidden="true">${icon('star')}</span>` : '') +
       `<div class="row-actions">` +
+      (t.done ? '' :
+        `<button type="button" class="icon-btn${t.due ? ' set' : ''}" data-action="pick-due" aria-label="${t.due ? 'Change' : 'Add'} due date: ${label}">${icon('calendar')}</button>` +
+        `<button type="button" class="icon-btn pri-${t.priority}" data-action="pick-pri" aria-label="${t.priority ? 'Change' : 'Set'} priority: ${label}">${icon('flag')}</button>`) +
       `<button type="button" class="icon-btn star${t.starred ? ' on' : ''}" data-action="star" aria-pressed="${t.starred}" aria-label="Star: ${label}">${icon('star')}</button>` +
       `<button type="button" class="icon-btn" data-action="open" aria-label="Details: ${label}">${icon('details')}</button>` +
       `</div></li>`;
@@ -490,6 +502,7 @@
     const { active, done } = visibleTasks();
     const canDrag = state.sort === 'order' && !!v.list && !ui.search && active.length > 1;
     const open = doneOpen();
+    const pendingText = $('#addInput')?.value || ''; // keep a half-typed task across re-renders
     main.innerHTML =
       `<div class="wrap">` +
       `<div class="main-head"><h1>${esc(v.title)}</h1><div class="head-actions">` +
@@ -499,7 +512,15 @@
       (v.list ? `<button type="button" class="icon-btn" data-action="list-menu" aria-label="List options" aria-haspopup="menu" aria-expanded="false">${icon('more', 'fill')}</button>` : '') +
       `</div></div>` +
       `<form class="add-row" id="addForm" autocomplete="off"><span class="add-ico">${icon('plus')}</span>` +
-      `<input id="addInput" placeholder="Add a task" aria-label="Add a task" maxlength="500"></form>` +
+      `<input id="addInput" placeholder="Add a task" aria-label="Add a task" maxlength="500">` +
+      `<div class="add-opts">` +
+      `<button type="button" class="opt-btn${ui.draft.due ? ` set ${dueClass({ due: ui.draft.due })}` : ''}" data-action="draft-due" ` +
+      `aria-label="${ui.draft.due ? `Due ${esc(fmtDue(ui.draft.due))}. Change due date for new task` : 'Set due date for new task'}">` +
+      `${icon('calendar')}${ui.draft.due ? `<span>${esc(fmtDue(ui.draft.due))}</span>` : ''}</button>` +
+      `<button type="button" class="opt-btn pri-${ui.draft.priority}${ui.draft.priority ? ' set' : ''}" data-action="draft-pri" ` +
+      `aria-label="${ui.draft.priority ? `${PRI[ui.draft.priority]} priority. Change priority for new task` : 'Set priority for new task'}">` +
+      `${icon('flag')}${ui.draft.priority ? `<span>${PRI[ui.draft.priority]}</span>` : ''}</button>` +
+      `</div></form>` +
       (ui.search ? `<p class="hint">Results for “${esc(ui.search)}”</p>` : '') +
       `<ul class="tasks" id="activeList">${active.map((t) => taskRow(t, v, canDrag)).join('')}</ul>` +
       (!active.length ? emptyState(v, done.length > 0) : '') +
@@ -510,6 +531,7 @@
           `</section>`
         : '') +
       `</div>`;
+    if (pendingText) $('#addInput').value = pendingText;
   }
 
   function renderDetails() {
@@ -617,6 +639,8 @@
     menuEl.remove();
     menuEl = null;
   }
+  // Items: { label, run, hint?, icon?, cls?, checked?, danger?, disabled? },
+  // { type: 'date', label, value, run(value) } or { type: 'sep' }.
   function openMenu(anchor, items) {
     closeMenu();
     menuEl = document.createElement('div');
@@ -624,22 +648,91 @@
     menuEl.setAttribute('role', 'menu');
     menuEl.anchor = anchor;
     for (const it of items) {
+      if (it.type === 'sep') {
+        const sep = document.createElement('div');
+        sep.className = 'menu-sep';
+        sep.setAttribute('role', 'separator');
+        menuEl.appendChild(sep);
+        continue;
+      }
+      if (it.type === 'date') {
+        const row = document.createElement('label');
+        row.className = 'menu-date';
+        row.innerHTML = `<span>${esc(it.label)}</span><input type="date" class="input" value="${esc(it.value || '')}">`;
+        const input = row.querySelector('input');
+        input.addEventListener('change', () => {
+          // Ignore partial years while typing (e.g. "0202"); the picker always gives a full date.
+          if (!input.value || Number(input.value.slice(0, 4)) < 1970) return;
+          closeMenu();
+          it.run(input.value);
+        });
+        menuEl.appendChild(row);
+        continue;
+      }
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'menu-item' + (it.danger ? ' danger' : '');
-      b.setAttribute('role', 'menuitem');
-      b.textContent = it.label;
+      const radio = it.checked !== undefined;
+      b.setAttribute('role', radio ? 'menuitemradio' : 'menuitem');
+      if (radio) b.setAttribute('aria-checked', String(!!it.checked));
+      b.innerHTML =
+        (it.icon ? `<span class="mi-ico ${it.cls || ''}">${icon(it.icon)}</span>` : '') +
+        `<span class="mi-label">${esc(it.label)}</span>` +
+        (it.hint ? `<span class="mi-hint">${esc(it.hint)}</span>` : '') +
+        (radio ? `<span class="mi-check">${it.checked ? icon('check') : ''}</span>` : '');
       b.disabled = !!it.disabled;
       b.addEventListener('click', () => { closeMenu(); it.run(); });
       menuEl.appendChild(b);
     }
+    menuEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const stops = [...menuEl.querySelectorAll('.menu-item:not(:disabled), .menu-date input')];
+      const i = stops.indexOf(document.activeElement);
+      const next = stops[(i + (e.key === 'ArrowDown' ? 1 : -1) + stops.length) % stops.length];
+      if (next) { e.preventDefault(); next.focus(); }
+    });
     document.body.appendChild(menuEl);
     const r = anchor.getBoundingClientRect();
     const w = menuEl.offsetWidth;
-    menuEl.style.top = `${r.bottom + 4}px`;
-    menuEl.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))}px`;
+    const h = menuEl.offsetHeight;
+    let top = r.bottom + 4;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 4);
+    const preferLeft = r.left + r.width / 2 < window.innerWidth / 2;
+    const left = preferLeft ? r.left : r.right - w;
+    menuEl.style.top = `${top}px`;
+    menuEl.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, left))}px`;
     anchor.setAttribute('aria-expanded', 'true');
-    menuEl.querySelector('.menu-item:not(:disabled)')?.focus();
+    (menuEl.querySelector('.menu-item[aria-checked="true"]') || menuEl.querySelector('.menu-item:not(:disabled)'))?.focus();
+  }
+
+  // ---------- Inline due date & priority pickers ----------
+  function dueMenu(anchor, current, apply) {
+    const plus = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return toKey(d); };
+    const day = (k) => parseKey(k).toLocaleDateString(undefined, { weekday: 'short' });
+    const full = (k) => parseKey(k).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    const [today, tomorrow, nextWeek] = [plus(0), plus(1), plus(7)];
+    openMenu(anchor, [
+      { label: 'Today', hint: day(today), checked: current === today, run: () => apply(today) },
+      { label: 'Tomorrow', hint: day(tomorrow), checked: current === tomorrow, run: () => apply(tomorrow) },
+      { label: 'Next week', hint: full(nextWeek), checked: current === nextWeek, run: () => apply(nextWeek) },
+      { type: 'date', label: 'Pick a date', value: current, run: (v) => apply(v) },
+      { type: 'sep' },
+      { label: 'No due date', disabled: !current, run: () => apply('') },
+    ]);
+  }
+  function priorityMenu(anchor, current, apply) {
+    openMenu(anchor, [3, 2, 1, 0].map((p) => ({
+      label: p ? PRI[p] : 'No priority', icon: 'flag', cls: `pri-${p}`,
+      checked: current === p, run: () => apply(p),
+    })));
+  }
+  // After a pick with the keyboard, put focus back on the same control.
+  function refocus(taskId, action, viaKeyboard) {
+    if (!viaKeyboard) return;
+    const sel = taskId
+      ? `.task[data-id="${CSS.escape(taskId)}"] [data-action="${action}"]`
+      : `[data-action="${action}"]`;
+    main.querySelector(sel)?.focus();
   }
 
   // ---------- Actions ----------
@@ -853,17 +946,40 @@
       case 'list-menu':
         if (menuEl) closeMenu(); else openListMenu(b);
         break;
+      case 'pick-due':
+      case 'pick-pri':
+      case 'draft-due':
+      case 'draft-pri': {
+        e.stopPropagation();
+        if (menuEl && menuEl.anchor === b) { closeMenu(); break; }
+        const kb = e.detail === 0;
+        const action = b.dataset.action;
+        if (action === 'pick-due' && t) {
+          dueMenu(b, t.due, (v) => { t.due = v; save(); render(); refocus(t.id, action, kb); });
+        } else if (action === 'pick-pri' && t) {
+          priorityMenu(b, t.priority, (p) => { t.priority = p; save(); render(); refocus(t.id, action, kb); });
+        } else if (action === 'draft-due') {
+          dueMenu(b, ui.draft.due, (v) => { ui.draft.due = v; renderMain(); $('#addInput').focus(); });
+        } else if (action === 'draft-pri') {
+          priorityMenu(b, ui.draft.priority, (p) => { ui.draft.priority = p; renderMain(); $('#addInput').focus(); });
+        }
+        break;
+      }
     }
   });
   main.addEventListener('submit', (e) => {
     if (e.target.id !== 'addForm') return;
     e.preventDefault();
-    const title = $('#addInput').value.trim();
+    const input = $('#addInput');
+    const title = input.value.trim();
     if (!title) return;
-    addTask(title);
+    const t = addTask(title, ui.draft);
+    ui.draft = { due: '', priority: 0 };
+    input.value = '';
     renderSidebar();
     renderMain();
     $('#addInput').focus();
+    if (!inView(t, state.view)) toast(`Task added to ${listById(t.listId).name}`);
   });
   main.addEventListener('change', (e) => {
     if (e.target.id === 'sortSel') {
@@ -983,7 +1099,7 @@
 
   // ---------- Global ----------
   document.addEventListener('mousedown', (e) => {
-    if (menuEl && !menuEl.contains(e.target) && !e.target.closest('[data-action="list-menu"]')) closeMenu();
+    if (menuEl && !menuEl.contains(e.target) && !(menuEl.anchor && menuEl.anchor.contains(e.target))) closeMenu();
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || modal.open) return;

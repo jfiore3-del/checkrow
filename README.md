@@ -7,6 +7,7 @@ A clean, Google Workspace–style to-do list that lives in the Chrome or Edge si
 - **Lists**: create, rename and delete lists. The list menu also clears completed tasks.
 - **Smart views**: All tasks, Today (due today or overdue) and Starred.
 - **Tasks**: add with Enter, edit titles inline, check off, and star.
+- **Inline due dates and priorities**: set them while adding a task, and change them right on the row (click the chip, or the calendar and flag icons that appear on hover).
 - **Details panel**: notes, due date, priority (Low / Medium / High) and moving a task to another list.
 - **Sorting**: My order (drag to reorder), Date, or Priority.
 - **Search** across titles and notes.
