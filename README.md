@@ -9,7 +9,8 @@ A clean, Google Workspace–style to-do list that lives in the Chrome or Edge si
 - **Tasks**: add with Enter, edit titles inline, check off, and star.
 - **Inline due dates and priorities**: set them while adding a task, and change them right on the row (click the chip, or the calendar and flag icons that appear on hover).
 - **Details panel**: notes, due date, priority (Low / Medium / High) and moving a task to another list.
-- **Sorting**: My order (drag to reorder), Date, or Priority.
+- **Sorting**: Priority (the default), Date, or My order (drag to reorder). Change the default for every list in **Settings**, or sort one list differently from the menu at the top of that list.
+- **Settings**: default sort order and theme. The default sort syncs to your other computers.
 - **Search** across titles and notes.
 - **Undo** for completing, deleting and clearing tasks.
 - **Light and dark themes**, following the system by default.

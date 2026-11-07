@@ -7,7 +7,13 @@
 
   const STORE_KEY = 'checkrow:v1';
   const PRI = ['None', 'Low', 'Medium', 'High'];
-  const SORTS = [['order', 'My order'], ['due', 'Date'], ['priority', 'Priority']];
+  const SORTS = [['priority', 'Priority'], ['due', 'Date'], ['order', 'My order']];
+  const SORT_HELP = {
+    priority: 'High priority first, then by due date',
+    due: 'Soonest due date first',
+    order: 'Your own order. Drag tasks to rearrange',
+  };
+  const isSort = (k) => SORTS.some(([s]) => s === k);
   const VIEWS = [
     ['all', 'All tasks', 'inbox'],
     ['today', 'Today', 'calendar'],
@@ -42,6 +48,7 @@
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     upload: '<path d="M12 16V5M7 10l5-5 5 5M5 20h14"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
     cloud: '<path d="M7 18.5h10.5a4 4 0 0 0 .7-7.94A6 6 0 0 0 6.6 9.1 4.7 4.7 0 0 0 7 18.5z"/>',
     device: '<rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2.5 19h19"/>',
     warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
@@ -77,7 +84,7 @@
   // ---------- State ----------
   function freshState() {
     const id = uid();
-    return { version: 1, lists: [{ id, name: 'My Tasks' }], tasks: [], view: id, sort: 'order', theme: 'system', showCompleted: {} };
+    return { version: 1, lists: [{ id, name: 'My Tasks' }], tasks: [], view: id, defaultSort: 'priority', sortBy: {}, theme: 'system', showCompleted: {} };
   }
   const isValid = (s) => !!s && Array.isArray(s.lists) && s.lists.length > 0 && Array.isArray(s.tasks);
   function normalize(s) {
@@ -107,7 +114,8 @@
       lists,
       tasks,
       view: views.has(s.view) ? s.view : lists[0].id,
-      sort: SORTS.some(([k]) => k === s.sort) ? s.sort : 'order',
+      defaultSort: isSort(s.defaultSort) ? s.defaultSort : 'priority',
+      sortBy: Object.fromEntries(Object.entries(s.sortBy && typeof s.sortBy === 'object' ? s.sortBy : {}).filter(([, v]) => isSort(v))),
       theme: ['system', 'light', 'dark'].includes(s.theme) ? s.theme : 'system',
       showCompleted: s.showCompleted && typeof s.showCompleted === 'object' ? s.showCompleted : {},
     };
@@ -168,7 +176,7 @@
   });
   function syncSnapshot() {
     const m = new Map();
-    m.set('meta', JSON.stringify({ v: 1, lists: state.lists.map((l) => ({ id: l.id, name: l.name })) }));
+    m.set('meta', JSON.stringify({ v: 1, lists: state.lists.map((l) => ({ id: l.id, name: l.name })), defaultSort: state.defaultSort }));
     for (const t of state.tasks) m.set(`t:${t.id}`, JSON.stringify(packTask(t)));
     return m;
   }
@@ -177,6 +185,7 @@
     if (!meta || !Array.isArray(meta.lists) || !meta.lists.length) return null;
     return {
       lists: meta.lists.map((l) => ({ id: l.id, name: l.name })),
+      defaultSort: isSort(meta.defaultSort) ? meta.defaultSort : null,
       tasks: Object.entries(items).filter(([k]) => k.startsWith('t:')).map(([k, v]) => unpackTask(k.slice(2), v)),
     };
   }
@@ -260,6 +269,8 @@
       if (k === 'meta') {
         const lists = change.newValue && change.newValue.lists;
         if (Array.isArray(lists) && lists.length) { state.lists = lists.map((l) => ({ id: l.id, name: l.name })); touched = true; }
+        const ds = change.newValue && change.newValue.defaultSort;
+        if (isSort(ds) && ds !== state.defaultSort) { state.defaultSort = ds; state.sortBy = {}; touched = true; }
       } else {
         const id = k.slice(2);
         const i = state.tasks.findIndex((t) => t.id === id);
@@ -322,6 +333,8 @@
     else if (localStorage.getItem(DIRTY_KEY) === '1') data = mergeData(remote, local, false); // closed before the last sync finished
     else data = remote;
     state = normalize({ ...prefs, lists: data.lists, tasks: data.tasks });
+    // The default sort follows the account, unless this computer has unsynced changes.
+    if (remote && remote.defaultSort && localStorage.getItem(DIRTY_KEY) !== '1') state.defaultSort = remote.defaultSort;
     try { localStorage.setItem(SYNCED_KEY, '1'); } catch (e) { /* ignore */ }
     save();
     await flushSync();
@@ -350,10 +363,11 @@
     const l = listById(state.view);
     return { id: state.view, title: l ? l.name : '', list: l || null };
   }
+  const currentSort = () => state.sortBy[state.view] || state.defaultSort;
   const openCount = (view) => state.tasks.filter((t) => !t.done && inView(t, view)).length;
   const dueCmp = (a, b) => (a.due === b.due ? 0 : !a.due ? 1 : !b.due ? -1 : a.due < b.due ? -1 : 1);
   function compare(a, b) {
-    switch (state.sort) {
+    switch (currentSort()) {
       case 'due': return dueCmp(a, b) || b.priority - a.priority || a.order - b.order;
       case 'priority': return b.priority - a.priority || dueCmp(a, b) || a.order - b.order;
       default: return listIndex(a.listId) - listIndex(b.listId) || a.order - b.order;
@@ -445,6 +459,7 @@
       `<ul class="nav">${state.lists.map((l) => navItem(l.id, l.name, 'list')).join('')}</ul>` +
       `<div class="sidebar-foot">` +
       syncStatusHTML() +
+      `<button type="button" class="text-btn" data-action="settings">${icon('settings')}Settings</button>` +
       `<button type="button" class="text-btn" data-action="export">${icon('download')}Export backup</button>` +
       `<button type="button" class="text-btn" data-action="import">${icon('upload')}Import backup</button>` +
       `</div>`;
@@ -500,7 +515,7 @@
   function renderMain() {
     const v = viewInfo();
     const { active, done } = visibleTasks();
-    const canDrag = state.sort === 'order' && !!v.list && !ui.search && active.length > 1;
+    const canDrag = currentSort() === 'order' && !!v.list && !ui.search && active.length > 1;
     const open = doneOpen();
     const pendingText = $('#addInput')?.value || ''; // keep a half-typed task across re-renders
     main.innerHTML =
@@ -508,7 +523,7 @@
       `<div class="main-head"><h1>${esc(v.title)}</h1><div class="head-actions">` +
       `<label class="sort"><span class="sort-label">Sort</span><span class="select-wrap">` +
       `<select id="sortSel" class="select pill" aria-label="Sort tasks by">` +
-      SORTS.map(([k, label]) => `<option value="${k}"${state.sort === k ? ' selected' : ''}>${label}</option>`).join('') +
+      SORTS.map(([k, label]) => `<option value="${k}"${currentSort() === k ? ' selected' : ''}>${label}${state.defaultSort === k ? ' (default)' : ''}</option>`).join('') +
       `</select>${icon('chevron', 'select-chev')}</span></label>` +
       (v.list ? `<button type="button" class="icon-btn" data-action="list-menu" aria-label="List options" aria-haspopup="menu" aria-expanded="false">${icon('more', 'fill')}</button>` : '') +
       `</div></div>` +
@@ -631,6 +646,41 @@
         resolve(input ? input.value.trim() || null : true);
       }, { once: true });
     });
+  }
+
+  // ---------- Settings ----------
+  function setDefaultSort(k) {
+    if (!isSort(k) || k === state.defaultSort) return;
+    state.defaultSort = k;
+    state.sortBy = {}; // every list follows the new default
+    save();
+    render();
+  }
+  function openSettings() {
+    const radio = (name, value, label, help, checked) =>
+      `<label class="choice"><input type="radio" name="${name}" value="${value}"${checked ? ' checked' : ''}>` +
+      `<span class="choice-text"><span class="choice-label">${esc(label)}</span>` +
+      (help ? `<span class="choice-help">${esc(help)}</span>` : '') + `</span></label>`;
+    modal.returnValue = '';
+    modal.innerHTML =
+      `<form method="dialog" class="modal-form settings-form">` +
+      `<h2>Settings</h2>` +
+      `<fieldset class="choices"><legend>Default sort order</legend>` +
+      SORTS.map(([k, label]) => radio('defaultSort', k, label, SORT_HELP[k], state.defaultSort === k)).join('') +
+      `<p class="choices-note">Applies to every list. You can still sort one list differently from the menu at the top of that list.</p>` +
+      `</fieldset>` +
+      `<fieldset class="choices"><legend>Theme</legend><div class="choice-row">` +
+      [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]
+        .map(([k, label]) => radio('theme', k, label, '', state.theme === k)).join('') +
+      `</div></fieldset>` +
+      `<div class="modal-actions"><button value="ok" class="btn primary">Done</button></div>` +
+      `</form>`;
+    modal.querySelector('form').addEventListener('change', (e) => {
+      if (e.target.name === 'defaultSort') setDefaultSort(e.target.value);
+      else if (e.target.name === 'theme') { state.theme = e.target.value; save(); applyTheme(); }
+    });
+    modal.showModal();
+    modal.querySelector('input[name="defaultSort"]:checked')?.focus();
   }
 
   // ---------- Menu ----------
@@ -919,6 +969,11 @@
         $('#addInput')?.focus();
         break;
       case 'new-list': newList(); break;
+      case 'settings':
+        document.body.classList.remove('sidebar-open');
+        syncScrim();
+        openSettings();
+        break;
       case 'export': exportData(); break;
       case 'import': importFile.click(); break;
     }
@@ -985,7 +1040,9 @@
   });
   main.addEventListener('change', (e) => {
     if (e.target.id === 'sortSel') {
-      state.sort = e.target.value;
+      // A list can keep its own sort; picking the default again clears that.
+      if (e.target.value === state.defaultSort) delete state.sortBy[state.view];
+      else state.sortBy[state.view] = e.target.value;
       save();
       renderMain();
       $('#sortSel')?.focus();
