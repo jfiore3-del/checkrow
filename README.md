@@ -1,6 +1,6 @@
 # CheckRow
 
-A clean, Google Workspace–style to-do list. Plain HTML, CSS and JavaScript with no build step and no dependencies. It runs as a normal web page or as a Chrome/Edge extension that opens in the browser's side panel.
+A clean, Google Workspace–style to-do list that lives in the Chrome or Edge side panel. It's a browser extension built with plain HTML, CSS and JavaScript, with no build step, no dependencies and no server.
 
 ## Features
 
@@ -12,36 +12,23 @@ A clean, Google Workspace–style to-do list. Plain HTML, CSS and JavaScript wit
 - **Search** across titles and notes.
 - **Undo** for completing, deleting and clearing tasks.
 - **Light and dark themes**, following the system by default.
-- **Sync across computers** through your Chrome or Edge account (extension version, no server).
+- **Sync across computers** through your Chrome or Edge account, with no server.
 - **Backups**: export everything to a JSON file and import it back.
-- **Responsive**: full three-pane layout on desktop, single column in the side panel or on a phone.
+- **Side panel or full tab**: single column in the side panel; the ↗ button opens a full three-pane view in a tab.
 
 ## Where your tasks are saved
 
-There's no CheckRow server. Every change is saved on your device right away.
+There's no CheckRow server. Every change is saved on your computer right away, then synced through your browser account, so your tasks show up on every computer where you're signed in to that browser with sync turned on. Changes from another computer appear live. It's free and there's nothing to host.
 
-- **Extension (Chrome or Edge):** tasks also sync through your browser account, so they show up on every computer where you're signed in to that browser with sync turned on. Changes from another computer appear live. It's free and there's nothing to host. Chrome and Edge each sync within their own accounts; they don't sync with each other.
-- **Web page:** tasks stay in that browser on that device. Use Export backup / Import backup to move them.
+Chrome and Edge each sync within their own accounts; they don't sync with each other. If browser sync is off, tasks stay on that computer; Export backup / Import backup moves them by hand.
 
-The sidebar shows the current status ("Synced with your browser account" or "Saved on this device").
+The bottom of the sidebar shows the current status, e.g. "Synced with your browser account".
 
 **Sync limits (set by the browser):** about 100 KB in total and 511 tasks, counting completed ones. That's plenty for everyday use. The status line warns you when you pass 60%, and *Delete all completed tasks* in a list's ⋮ menu frees space. Task details are capped at 2,000 characters so each task fits in a sync item.
 
 If you were already using CheckRow on a computer before sync, your existing tasks are merged in the first time you open the new version, and lists with the same name are combined.
 
-## Run it
-
-### As a web page
-
-Open `app/index.html` in a browser. To serve it locally instead:
-
-```sh
-cd app
-python3 -m http.server 8080
-# then visit http://localhost:8080
-```
-
-### As a Chrome or Edge extension
+## Install it (for testing)
 
 1. Go to `chrome://extensions` (or `edge://extensions`).
 2. Turn on **Developer mode**.
@@ -64,7 +51,7 @@ cd app && zip -r ../checkrow-extension.zip . -x '.*'
 
 ```
 app/
-  index.html      page shell
+  index.html      the screen shown in the side panel or tab
   styles.css      all styles and light/dark theme tokens
   app.js          state, rendering, interactions and browser-account sync
   manifest.json   extension manifest (Manifest V3, side panel)
