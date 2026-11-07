@@ -42,6 +42,9 @@
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     upload: '<path d="M12 16V5M7 10l5-5 5 5M5 20h14"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
+    cloud: '<path d="M7 18.5h10.5a4 4 0 0 0 .7-7.94A6 6 0 0 0 6.6 9.1 4.7 4.7 0 0 0 7 18.5z"/>',
+    device: '<rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2.5 19h19"/>',
+    warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
     party: '<path d="M4 20l4.5-12 7.5 7.5z"/><path d="M14 4.5c0 1.5 1 2 2 2M19.5 9.5c-1.5 0-2 1-2 2M15 9l4-4M10.5 3.5l.5 1.5M20.5 13.5l-1.5-.5"/>',
   };
   const icon = (name, cls = '') => (
@@ -109,26 +112,221 @@
       showCompleted: s.showCompleted && typeof s.showCompleted === 'object' ? s.showCompleted : {},
     };
   }
-  function load() {
+  function loadLocal() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
         const s = JSON.parse(raw);
         if (isValid(s)) return normalize(s);
       }
-    } catch (e) { /* storage unavailable or corrupt: start fresh */ }
-    return freshState();
+    } catch (e) { /* storage unavailable or corrupt */ }
+    return null;
   }
-  function save() {
+  const load = () => loadLocal() || freshState();
+  function saveLocal() {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(state));
     } catch (e) {
       toast('Couldn’t save. Browser storage is unavailable.');
     }
   }
+  // Every change is written to this device right away, then synced (extension only).
+  function save() {
+    saveLocal();
+    if (syncArea) {
+      try { localStorage.setItem(DIRTY_KEY, '1'); } catch (e) { /* ignore */ }
+      scheduleSync();
+    }
+  }
 
-  let state = load();
+  let state = freshState(); // replaced in init()
   const ui = { search: '', openTaskId: null, dragId: null };
+
+  // ---------- Sync (Chrome/Edge account sync via chrome.storage.sync) ----------
+  // No server: the browser syncs this storage across every computer signed in to the
+  // same browser account. Lists live in one "meta" item and each task in its own
+  // "t:<id>" item, so edits only rewrite what changed and stay inside Chrome's limits
+  // (100 KB total, 8 KB per item, 512 items, 120 writes a minute).
+  const DIRTY_KEY = 'checkrow:unsynced';
+  const SYNCED_KEY = 'checkrow:synced';
+  const syncArea = (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) ? chrome.storage.sync : null;
+  const SYNC_QUOTA = (syncArea && syncArea.QUOTA_BYTES) || 102400;
+  const SYNC_MAX_ITEMS = (syncArea && syncArea.MAX_ITEMS) || 512;
+  const Sync = { last: new Map(), inflight: new Map(), timer: 0, retry: 0, busy: false, again: false, status: syncArea ? 'synced' : 'local', usage: 0 };
+
+  const isSyncKey = (k) => k === 'meta' || k.startsWith('t:');
+  const packTask = (t) => ({
+    l: t.listId, t: t.title,
+    n: t.notes || undefined, d: t.due || undefined, p: t.priority || undefined,
+    s: t.starred ? 1 : undefined, x: t.done ? 1 : undefined, c: t.completedAt || undefined,
+    a: t.createdAt, o: t.order,
+  });
+  const unpackTask = (id, v) => ({
+    id, listId: v.l, title: v.t || '', notes: v.n || '', due: v.d || '',
+    priority: v.p || 0, starred: !!v.s, done: !!v.x, completedAt: v.c || 0,
+    createdAt: v.a || Date.now(), order: v.o || 0,
+  });
+  function syncSnapshot() {
+    const m = new Map();
+    m.set('meta', JSON.stringify({ v: 1, lists: state.lists.map((l) => ({ id: l.id, name: l.name })) }));
+    for (const t of state.tasks) m.set(`t:${t.id}`, JSON.stringify(packTask(t)));
+    return m;
+  }
+  function fromSyncItems(items) {
+    const meta = items.meta;
+    if (!meta || !Array.isArray(meta.lists) || !meta.lists.length) return null;
+    return {
+      lists: meta.lists.map((l) => ({ id: l.id, name: l.name })),
+      tasks: Object.entries(items).filter(([k]) => k.startsWith('t:')).map(([k, v]) => unpackTask(k.slice(2), v)),
+    };
+  }
+  // Combine what's in sync with what's on this device. Local copies win for tasks that
+  // exist in both. With matchNames, a local list with the same name as a synced one is
+  // folded into it (so a second computer's empty "My Tasks" doesn't become a duplicate).
+  function mergeData(remote, local, matchNames) {
+    const lists = remote.lists.map((l) => ({ ...l }));
+    const idMap = new Map();
+    for (const l of local.lists) {
+      const same = lists.find((r) => r.id === l.id);
+      if (same) { same.name = l.name; continue; }
+      const byName = matchNames && lists.find((r) => r.name.trim().toLowerCase() === l.name.trim().toLowerCase());
+      if (byName) { idMap.set(l.id, byName.id); continue; }
+      lists.push({ ...l });
+    }
+    const tasks = new Map(remote.tasks.map((t) => [t.id, t]));
+    for (const t of local.tasks) tasks.set(t.id, { ...t, listId: idMap.get(t.listId) || t.listId });
+    return { lists, tasks: [...tasks.values()] };
+  }
+
+  function scheduleSync() {
+    clearTimeout(Sync.timer);
+    if (Sync.status !== 'full' && Sync.status !== 'too-big') setSyncStatus('saving');
+    Sync.timer = setTimeout(flushSync, 1500);
+  }
+  async function flushSync() {
+    clearTimeout(Sync.timer);
+    clearTimeout(Sync.retry);
+    if (!syncArea) return;
+    if (Sync.busy) { Sync.again = true; return; }
+    Sync.busy = true;
+    const snap = syncSnapshot();
+    const toSet = {};
+    const toRemove = [];
+    for (const [k, v] of snap) if (Sync.last.get(k) !== v) toSet[k] = JSON.parse(v);
+    for (const k of Sync.last.keys()) if (!snap.has(k)) toRemove.push(k);
+    const setKeys = Object.keys(toSet);
+    try {
+      for (const k of setKeys) Sync.inflight.set(k, snap.get(k));
+      for (const k of toRemove) Sync.inflight.set(k, undefined);
+      if (toRemove.length) await syncArea.remove(toRemove);
+      if (setKeys.length) await syncArea.set(toSet);
+      for (const k of toRemove) Sync.last.delete(k);
+      for (const k of setKeys) Sync.last.set(k, snap.get(k));
+      try { localStorage.removeItem(DIRTY_KEY); } catch (e) { /* ignore */ }
+      setSyncStatus('synced');
+      updateUsage();
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      if (/PER_ITEM/.test(msg)) setSyncStatus('too-big');
+      else if (/QUOTA_BYTES|MAX_ITEMS/.test(msg)) {
+        if (Sync.status !== 'full') toast('Sync storage is full. Delete completed tasks to free up space.');
+        setSyncStatus('full');
+      } else if (/MAX_WRITE_OPERATIONS/.test(msg)) { setSyncStatus('waiting'); Sync.retry = setTimeout(flushSync, 60000); }
+      else { setSyncStatus('error'); Sync.retry = setTimeout(flushSync, 30000); }
+    } finally {
+      Sync.inflight.clear();
+      Sync.busy = false;
+      if (Sync.again) { Sync.again = false; scheduleSync(); }
+    }
+  }
+  async function updateUsage() {
+    if (!syncArea || !syncArea.getBytesInUse) return;
+    try {
+      const bytes = await syncArea.getBytesInUse(null);
+      Sync.usage = Math.max(bytes / SYNC_QUOTA, Sync.last.size / SYNC_MAX_ITEMS);
+      paintSyncStatus();
+    } catch (e) { /* ignore */ }
+  }
+
+  // Apply changes made on another computer (or in another CheckRow window).
+  function onSyncChanged(changes, area) {
+    if (area !== 'sync') return;
+    let touched = false;
+    for (const [k, change] of Object.entries(changes)) {
+      if (!isSyncKey(k)) continue;
+      const nv = change.newValue === undefined ? undefined : JSON.stringify(change.newValue);
+      if (Sync.last.get(k) === nv || (Sync.inflight.has(k) && Sync.inflight.get(k) === nv)) continue; // our own write
+      if (nv === undefined) Sync.last.delete(k); else Sync.last.set(k, nv);
+      if (k === 'meta') {
+        const lists = change.newValue && change.newValue.lists;
+        if (Array.isArray(lists) && lists.length) { state.lists = lists.map((l) => ({ id: l.id, name: l.name })); touched = true; }
+      } else {
+        const id = k.slice(2);
+        const i = state.tasks.findIndex((t) => t.id === id);
+        if (change.newValue === undefined) { if (i >= 0) { state.tasks.splice(i, 1); touched = true; } }
+        else { const t = unpackTask(id, change.newValue); if (i >= 0) state.tasks[i] = t; else state.tasks.push(t); touched = true; }
+      }
+    }
+    if (!touched) return;
+    if (!['all', 'today', 'starred'].includes(state.view) && !listById(state.view)) state.view = state.lists[0].id;
+    if (ui.openTaskId && !taskById(ui.openTaskId)) ui.openTaskId = null;
+    saveLocal();
+    render();
+    updateUsage();
+  }
+
+  const SYNC_TEXT = {
+    local: ['device', 'Saved on this device'],
+    synced: ['cloud', 'Synced with your browser account'],
+    saving: ['cloud', 'Saving…'],
+    waiting: ['cloud', 'Syncing shortly…'],
+    error: ['warn', 'Can’t sync right now. Saved on this device.'],
+    full: ['warn', 'Sync storage full. Delete completed tasks to free space.'],
+    'too-big': ['warn', 'A task’s details are too long to sync. Shorten them.'],
+  };
+  function syncStatusHTML() {
+    const [ic, text] = SYNC_TEXT[Sync.status] || SYNC_TEXT.local;
+    const warn = ic === 'warn';
+    const pct = Math.round(Sync.usage * 100);
+    const usage = syncArea && pct >= 60 && !warn ? ` · ${pct}% of sync space used` : '';
+    return `<p class="sync-status${warn ? ' warn' : ''}" id="syncStatus">${icon(ic)}<span>${esc(text + usage)}</span></p>`;
+  }
+  function paintSyncStatus() {
+    const el = document.getElementById('syncStatus');
+    if (el) el.outerHTML = syncStatusHTML();
+  }
+  function setSyncStatus(s) {
+    if (Sync.status === s) return;
+    Sync.status = s;
+    paintSyncStatus();
+  }
+
+  async function init() {
+    const local = loadLocal();
+    if (!syncArea) { state = local || freshState(); return; }
+    let items;
+    try {
+      items = await syncArea.get(null);
+    } catch (e) {
+      state = local || freshState();
+      Sync.status = 'error';
+      return;
+    }
+    for (const [k, v] of Object.entries(items)) if (isSyncKey(k)) Sync.last.set(k, JSON.stringify(v));
+    const remote = fromSyncItems(items);
+    const prefs = local || freshState();
+    let data;
+    if (!remote) data = prefs; // first computer: upload what's here
+    else if (!local) data = remote; // new computer: take what's synced
+    else if (localStorage.getItem(SYNCED_KEY) !== '1') data = mergeData(remote, local, true); // first sync on this computer
+    else if (localStorage.getItem(DIRTY_KEY) === '1') data = mergeData(remote, local, false); // closed before the last sync finished
+    else data = remote;
+    state = normalize({ ...prefs, lists: data.lists, tasks: data.tasks });
+    try { localStorage.setItem(SYNCED_KEY, '1'); } catch (e) { /* ignore */ }
+    save();
+    await flushSync();
+    chrome.storage.onChanged.addListener(onSyncChanged);
+  }
 
   // ---------- Queries ----------
   const listById = (id) => state.lists.find((l) => l.id === id);
@@ -246,6 +444,7 @@
       `<button type="button" class="icon-btn sm" data-action="new-list" aria-label="Create new list">${icon('plus')}</button></div>` +
       `<ul class="nav">${state.lists.map((l) => navItem(l.id, l.name, 'list')).join('')}</ul>` +
       `<div class="sidebar-foot">` +
+      syncStatusHTML() +
       `<button type="button" class="text-btn" data-action="export">${icon('download')}Export backup</button>` +
       `<button type="button" class="text-btn" data-action="import">${icon('upload')}Import backup</button>` +
       `</div>`;
@@ -337,7 +536,7 @@
       `<div class="field"><label for="dTitle">Title</label>` +
       `<input id="dTitle" class="input title-input" value="${esc(t.title)}" placeholder="Title" maxlength="500"></div>` +
       `<div class="field"><label for="dNotes">Details</label>` +
-      `<textarea id="dNotes" class="input" rows="5" placeholder="Add details">${esc(t.notes)}</textarea></div>` +
+      `<textarea id="dNotes" class="input" rows="5" placeholder="Add details" maxlength="2000">${esc(t.notes)}</textarea></div>` +
       `<div class="field"><label for="dDue">Due date</label><div class="row">` +
       `<input id="dDue" class="input" type="date" value="${esc(t.due)}">` +
       (t.due ? `<button type="button" class="text-btn" data-action="clear-due">Clear</button>` : '') +
@@ -797,13 +996,20 @@
   overlayDetailsMQ.addEventListener('change', syncScrim);
   darkMQ.addEventListener('change', applyTheme);
 
-  // Keep a side panel and a full tab in sync when both are open.
+  // Web version: keep two open tabs in step. (The extension uses chrome.storage events instead.)
   window.addEventListener('storage', (e) => {
-    if (e.key !== STORE_KEY) return;
-    state = load();
+    if (syncArea || e.key !== STORE_KEY) return;
+    const fresh = load();
+    state.lists = fresh.lists;
+    state.tasks = fresh.tasks;
+    if (!['all', 'today', 'starred'].includes(state.view) && !listById(state.view)) state.view = state.lists[0].id;
     if (ui.openTaskId && !taskById(ui.openTaskId)) ui.openTaskId = null;
     render();
   });
+
+  // Push any pending changes when the panel or tab is closed or hidden.
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSync(); });
+  window.addEventListener('pagehide', () => { flushSync(); });
 
   // Re-render at midnight so "Today" and overdue markers stay right.
   let lastDay = todayKey();
@@ -812,6 +1018,9 @@
     if (k !== lastDay) { lastDay = k; render(); }
   }, 60000);
 
-  render();
-  syncScrim();
+  init().then(() => {
+    render();
+    syncScrim();
+    updateUsage();
+  });
 })();

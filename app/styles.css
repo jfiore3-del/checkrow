@@ -213,6 +213,13 @@ body.sidebar-collapsed .sidebar { display: none; }
   color: var(--text-2);
 }
 .sidebar-foot { margin-top: auto; padding: 16px 0 0 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; border-top: 1px solid var(--border); }
+.sync-status {
+  display: flex; align-items: flex-start; gap: 10px;
+  margin: 0 0 6px; padding: 4px 12px;
+  font-size: 12px; line-height: 1.4; color: var(--text-2);
+}
+.sync-status .ico { width: 16px; height: 16px; margin-top: 1px; }
+.sync-status.warn { color: var(--danger); }
 .sidebar-foot .text-btn { color: var(--text-2); }
 .sidebar-foot .text-btn:hover { color: var(--text); }
 
