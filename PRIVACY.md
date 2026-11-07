@@ -38,4 +38,4 @@ If this policy changes, this page and its effective date will be updated, and ch
 
 ## Contact
 
-[YOUR SUPPORT EMAIL]
+[support@soundviewnetworks.com](mailto:support@soundviewnetworks.com)
