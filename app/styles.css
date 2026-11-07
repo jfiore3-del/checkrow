@@ -496,7 +496,7 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; }
 }
 .field-label { font-size: 12px; font-weight: 600; letter-spacing: .3px; color: var(--text-2); }
 .ai-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.ai-btn { justify-content: center; padding: 0 8px; }
+.ai-btn { justify-content: center; padding: 0 6px; white-space: nowrap; }
 .ai-btn:hover { border-color: var(--accent); color: var(--accent-text); background: var(--accent-weak); }
 @media (max-width: 560px) {
   .brief-btn { width: 36px; padding: 0; justify-content: center; }
@@ -526,6 +526,43 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; }
 .choice-row .choice { align-items: center; padding: 10px; }
 .choice-row .choice input { margin: 0; }
 .choices-note { margin: 4px 0 0; font-size: 12px; color: var(--text-2); }
+.chat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.optional { font-weight: 400; color: var(--text-2); }
+
+/* Daily reminder */
+.switch-row { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; padding: 2px 0 6px; }
+.switch-row input {
+  -webkit-appearance: none; appearance: none;
+  flex: none; width: 36px; height: 20px; margin: 1px 0 0;
+  border-radius: 999px; background: var(--border); position: relative; cursor: pointer;
+  transition: background .15s;
+}
+.switch-row input::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%; background: #FFFFFF;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: transform .15s;
+}
+.switch-row input:checked { background: var(--accent); }
+.switch-row input:checked::after { transform: translateX(16px); }
+.switch-row input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rem-detail { display: flex; flex-direction: column; gap: 10px; padding-left: 48px; }
+.day-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.day { position: relative; }
+.day input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.day span {
+  display: grid; place-items: center; height: 34px;
+  border: 1px solid var(--border); border-radius: 8px;
+  font-size: 12px; font-weight: 500; color: var(--text-2);
+}
+.day input:checked + span { background: var(--accent-weak); border-color: var(--accent); color: var(--accent-text); }
+.day input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rem-time-row { gap: 10px; }
+.rem-time { flex: 0 0 auto !important; width: 140px; padding: 8px 10px; }
+@media (max-width: 560px) {
+  .rem-detail { padding-left: 0; }
+  .chat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .chat-grid .ai-btn { font-size: 13px; padding: 0 4px; }
+}
 
 .toast {
   position: fixed; z-index: 70; left: 24px; bottom: 24px;

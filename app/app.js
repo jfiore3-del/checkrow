@@ -119,6 +119,7 @@
       defaultSort: isSort(s.defaultSort) ? s.defaultSort : 'priority',
       sortBy: Object.fromEntries(Object.entries(s.sortBy && typeof s.sortBy === 'object' ? s.sortBy : {}).filter(([, v]) => isSort(v))),
       theme: ['system', 'light', 'dark'].includes(s.theme) ? s.theme : 'system',
+      chatEmail: typeof s.chatEmail === 'string' ? s.chatEmail.trim().slice(0, 200) : '',
       showCompleted: s.showCompleted && typeof s.showCompleted === 'object' ? s.showCompleted : {},
     };
   }
@@ -662,6 +663,19 @@
     { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com/app', param: null },
     { id: 'grok', name: 'Grok', url: 'https://grok.com/', param: 'q' },
   ];
+  // Chat apps can't take a message in a link (except Teams, for a chat with yourself),
+  // so these copy the brief and open the app for a quick paste.
+  const CHAT_TARGETS = [
+    { id: 'teams', name: 'Teams', url: 'https://teams.microsoft.com/' },
+    { id: 'slack', name: 'Slack', url: 'https://app.slack.com/client' },
+    { id: 'gchat', name: 'Google Chat', url: 'https://chat.google.com/' },
+  ];
+  function chatUrl(target, text) {
+    if (target.id === 'teams' && state.chatEmail && text.length <= 3000) {
+      return `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(state.chatEmail)}&message=${encodeURIComponent(text)}`;
+    }
+    return target.url;
+  }
   const BRIEF_PROMPT =
     'Here is my to-do list from CheckRow. Give me a short morning brief: what’s overdue, what’s due today, ' +
     'the three things I should focus on first and why, and anything worth rescheduling. Keep it concise.';
@@ -743,7 +757,13 @@
       `<div class="field"><span class="field-label" id="aiLabel">Open in</span>` +
       `<div class="ai-grid" role="group" aria-labelledby="aiLabel">` +
       AI_TARGETS.map((a) => `<button type="button" class="btn ai-btn" data-ai="${a.id}">${esc(a.name)}</button>`).join('') +
-      `</div><p class="choices-note">The brief is copied for you. If the chat box isn’t filled in, press ${pasteKey} to paste.</p></div>` +
+      `</div></div>` +
+      `<div class="field"><span class="field-label" id="chatLabel">Send to my chat</span>` +
+      `<div class="ai-grid chat-grid" role="group" aria-labelledby="chatLabel">` +
+      CHAT_TARGETS.map((c) => `<button type="button" class="btn ai-btn" data-chat="${c.id}">${esc(c.name)}</button>`).join('') +
+      `</div><p class="choices-note">The brief is copied for you. If the message box isn’t filled in, press ${pasteKey} to paste.` +
+      (state.chatEmail ? '' : ' Add your work email in Settings and Teams opens a chat with yourself with the brief already typed.') +
+      `</p></div>` +
       `<div class="modal-actions"><button value="ok" class="btn">Close</button>` +
       `<button type="button" class="btn" data-ai="copy">${icon('copy')}Copy brief</button></div>` +
       `</form>`;
@@ -752,6 +772,24 @@
     textEl.value = buildBrief('all');
     scopeSel.addEventListener('change', () => { textEl.value = buildBrief(scopeSel.value); });
     modal.querySelector('form').addEventListener('click', async (e) => {
+      const c = e.target.closest('[data-chat]');
+      if (c) {
+        const target = CHAT_TARGETS.find((x) => x.id === c.dataset.chat);
+        // In a chat the AI instructions are noise, so drop them unless the person edited them.
+        let text = textEl.value;
+        if (text.startsWith(BRIEF_PROMPT)) text = text.slice(BRIEF_PROMPT.length).replace(/^\s+/, '');
+        const copied = await copyText(text, textEl);
+        const url = chatUrl(target, text);
+        openUrl(url);
+        modal.close();
+        const prefilled = url !== target.url;
+        toast(prefilled
+          ? 'Opening a Teams chat with yourself. Press Enter to send.'
+          : copied
+            ? `Brief copied. In ${target.name}, open your own chat and press ${pasteKey}.`
+            : `Opened ${target.name}. Copy the brief from CheckRow and paste it in.`);
+        return;
+      }
       const b = e.target.closest('[data-ai]');
       if (!b) return;
       const text = textEl.value;
@@ -785,18 +823,61 @@
     save();
     render();
   }
-  function openSettings() {
+  // Reminder settings live in chrome.storage.sync so the background worker can read
+  // them and they follow the user to other computers.
+  const canRemind = !!(syncArea && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage);
+  const REMINDER_DEFAULT = { on: false, days: [1, 2, 3, 4, 5], time: '08:30' };
+  const WEEK = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
+  async function getReminder() {
+    try {
+      const { reminder } = await syncArea.get('reminder');
+      return { ...REMINDER_DEFAULT, ...(reminder || {}) };
+    } catch (e) { return { ...REMINDER_DEFAULT }; }
+  }
+  async function setReminder(r) {
+    const now = new Date();
+    const [h, m] = r.time.split(':').map(Number);
+    const passed = now.getHours() * 60 + now.getMinutes() >= h * 60 + m;
+    const items = { reminder: r };
+    // Turning it on after today's time has passed shouldn't fire a reminder right away.
+    if (r.on && passed) items.reminderLast = todayKey();
+    try { await syncArea.set(items); } catch (e) { toast('Couldn’t save the reminder.'); }
+  }
+
+  async function openSettings() {
     const radio = (name, value, label, help, checked) =>
       `<label class="choice"><input type="radio" name="${name}" value="${value}"${checked ? ' checked' : ''}>` +
       `<span class="choice-text"><span class="choice-label">${esc(label)}</span>` +
       (help ? `<span class="choice-help">${esc(help)}</span>` : '') + `</span></label>`;
+    const rem = canRemind ? await getReminder() : null;
     modal.returnValue = '';
+    modal.classList.add('wide');
     modal.innerHTML =
       `<form method="dialog" class="modal-form settings-form">` +
       `<h2>Settings</h2>` +
+      (rem
+        ? `<fieldset class="choices"><legend>Daily reminder</legend>` +
+          `<label class="switch-row"><input type="checkbox" id="remOn" role="switch"${rem.on ? ' checked' : ''}>` +
+          `<span class="choice-text"><span class="choice-label">Remind me to send my AI Brief</span>` +
+          `<span class="choice-help">A notification pops up at this time. Click it to send your tasks to Claude, ChatGPT, Teams, Slack and more.</span></span></label>` +
+          `<div class="rem-detail"${rem.on ? '' : ' hidden'}>` +
+          `<div class="day-row" role="group" aria-label="Days">` +
+          WEEK.map(([d, label]) => `<label class="day"><input type="checkbox" name="remDay" value="${d}"${rem.days.includes(d) ? ' checked' : ''}><span>${label}</span></label>`).join('') +
+          `</div>` +
+          `<div class="row rem-time-row"><label for="remTime" class="field-label">Time</label>` +
+          `<input id="remTime" class="input rem-time" type="time" value="${esc(rem.time)}" required>` +
+          `<button type="button" class="text-btn" data-action="test-reminder">Send a test</button></div>` +
+          `<p class="choices-note">Your browser needs to be open. If it isn’t at that time, the reminder shows up when you next open it that day.</p>` +
+          `</div></fieldset>`
+        : '') +
       `<fieldset class="choices"><legend>Default sort order</legend>` +
       SORTS.map(([k, label]) => radio('defaultSort', k, label, SORT_HELP[k], state.defaultSort === k)).join('') +
       `<p class="choices-note">Applies to every list. You can still sort one list differently from the menu at the top of that list.</p>` +
+      `</fieldset>` +
+      `<fieldset class="choices"><legend>AI Brief</legend>` +
+      `<label for="chatEmail" class="choice-label">Your work email for Teams <span class="optional">(optional)</span></label>` +
+      `<input id="chatEmail" class="input" type="email" autocomplete="email" placeholder="you@company.com" value="${esc(state.chatEmail)}">` +
+      `<p class="choices-note">Lets the Teams button open a chat with yourself with the brief already typed. Stays on this computer.</p>` +
       `</fieldset>` +
       `<fieldset class="choices"><legend>Theme</legend><div class="choice-row">` +
       [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]
@@ -804,12 +885,33 @@
       `</div></fieldset>` +
       `<div class="modal-actions"><button value="ok" class="btn primary">Done</button></div>` +
       `</form>`;
-    modal.querySelector('form').addEventListener('change', (e) => {
-      if (e.target.name === 'defaultSort') setDefaultSort(e.target.value);
-      else if (e.target.name === 'theme') { state.theme = e.target.value; save(); applyTheme(); }
+    const form = modal.querySelector('form');
+    const readReminder = () => ({
+      on: $('#remOn', form).checked,
+      days: [...form.querySelectorAll('input[name="remDay"]:checked')].map((i) => Number(i.value)),
+      time: $('#remTime', form).value || REMINDER_DEFAULT.time,
     });
+    form.addEventListener('change', (e) => {
+      const n = e.target.name;
+      const id = e.target.id;
+      if (n === 'defaultSort') setDefaultSort(e.target.value);
+      else if (n === 'theme') { state.theme = e.target.value; save(); applyTheme(); }
+      else if (id === 'chatEmail') { state.chatEmail = e.target.value.trim(); save(); }
+      else if (id === 'remOn' || n === 'remDay' || id === 'remTime') {
+        const r = readReminder();
+        $('.rem-detail', form).hidden = !r.on;
+        setReminder(r);
+        if (id === 'remOn' && r.on && !r.days.length) toast('Pick at least one day for the reminder.');
+      }
+    });
+    form.addEventListener('click', (e) => {
+      if (!e.target.closest('[data-action="test-reminder"]')) return;
+      chrome.runtime.sendMessage({ type: 'checkrow-test-reminder' }).catch(() => {});
+      toast('Test reminder sent. Check your notifications.');
+    });
+    modal.addEventListener('close', () => modal.classList.remove('wide'), { once: true });
     modal.showModal();
-    modal.querySelector('input[name="defaultSort"]:checked')?.focus();
+    (form.querySelector('#remOn') || form.querySelector('input[name="defaultSort"]:checked'))?.focus();
   }
 
   // ---------- Menu ----------
@@ -1329,5 +1431,9 @@
     render();
     syncScrim();
     updateUsage();
+    if (location.hash === '#brief') {
+      history.replaceState(null, '', location.pathname);
+      openBrief();
+    }
   });
 })();

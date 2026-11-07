@@ -11,7 +11,9 @@ A clean, Google Workspace–style to-do list that lives in the Chrome or Edge si
 - **Details panel**: notes, due date, priority (Low / Medium / High) and moving a task to another list.
 - **Sorting**: Priority (the default), Date, or My order (drag to reorder). Change the default for every list in **Settings**, or sort one list differently from the menu at the top of that list.
 - **AI Brief**: one click sends your open tasks (overdue, due today, coming up, by priority) to Claude, ChatGPT, Gemini or Grok for a morning brief. The brief is copied to your clipboard and the assistant opens in a new tab, pre-filled where the site supports it. You can edit the brief first or limit it to one list.
-- **Settings**: default sort order and theme. The default sort syncs to your other computers.
+- **Send to chat**: from AI Brief, send your task list to Teams, Slack or Google Chat. It's copied for a quick paste, and Teams opens a chat with yourself with the list already typed if you add your work email in Settings.
+- **Daily reminder**: pick your work days and a time. A notification pops up with a quick summary (overdue, due today, high priority); click it to open AI Brief. If your browser is closed at that time, it reminds you when you next open it that day. Only one of your computers shows it.
+- **Settings**: daily reminder, default sort order, Teams email and theme. The default sort syncs to your other computers.
 - **Search** across titles and notes.
 - **Undo** for completing, deleting and clearing tasks.
 - **Light and dark themes**, following the system by default.
@@ -23,7 +25,7 @@ A clean, Google Workspace–style to-do list that lives in the Chrome or Edge si
 
 There's no CheckRow server. Every change is saved on your computer right away, then synced through your browser account, so your tasks show up on every computer where you're signed in to that browser with sync turned on. Changes from another computer appear live. It's free and there's nothing to host.
 
-Tasks only leave your browser when you use **AI Brief**, and only to the assistant you pick.
+Tasks only leave your browser when you use **AI Brief**, and only to the assistant or chat app you pick.
 
 Chrome and Edge each sync within their own accounts; they don't sync with each other. If browser sync is off, tasks stay on that computer; Export backup / Import backup moves them by hand.
 
@@ -60,7 +62,7 @@ app/
   styles.css      all styles and light/dark theme tokens
   app.js          state, rendering, interactions and browser-account sync
   manifest.json   extension manifest (Manifest V3, side panel)
-  background.js   opens the side panel from the toolbar icon
+  background.js   opens the side panel; schedules the daily reminder
   icons/          app icons (16, 32, 48, 128 px + SVG)
 brand/
   checkrow-icon.svg, checkrow-icon-dark.svg, checkrow-favicon.svg
