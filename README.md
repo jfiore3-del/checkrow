@@ -10,6 +10,7 @@ A clean, Google Workspace–style to-do list that lives in the Chrome or Edge si
 - **Inline due dates and priorities**: set them while adding a task, and change them right on the row (click the chip, or the calendar and flag icons that appear on hover).
 - **Details panel**: notes, due date, priority (Low / Medium / High) and moving a task to another list.
 - **Sorting**: Priority (the default), Date, or My order (drag to reorder). Change the default for every list in **Settings**, or sort one list differently from the menu at the top of that list.
+- **AI Brief**: one click sends your open tasks (overdue, due today, coming up, by priority) to Claude, ChatGPT, Gemini or Grok for a morning brief. The brief is copied to your clipboard and the assistant opens in a new tab, pre-filled where the site supports it. You can edit the brief first or limit it to one list.
 - **Settings**: default sort order and theme. The default sort syncs to your other computers.
 - **Search** across titles and notes.
 - **Undo** for completing, deleting and clearing tasks.
@@ -21,6 +22,8 @@ A clean, Google Workspace–style to-do list that lives in the Chrome or Edge si
 ## Where your tasks are saved
 
 There's no CheckRow server. Every change is saved on your computer right away, then synced through your browser account, so your tasks show up on every computer where you're signed in to that browser with sync turned on. Changes from another computer appear live. It's free and there's nothing to host.
+
+Tasks only leave your browser when you use **AI Brief**, and only to the assistant you pick.
 
 Chrome and Edge each sync within their own accounts; they don't sync with each other. If browser sync is off, tasks stay on that computer; Export backup / Import backup moves them by hand.
 

@@ -243,7 +243,7 @@ body.sidebar-collapsed .sidebar { display: none; }
   font-size: 13px; font-weight: 500; line-height: 32px;
 }
 .select.pill:hover { background: var(--hover); }
-.select.input { padding-right: 36px; }
+.select.input { padding-right: 36px; font-size: 14px; }
 .select-wrap.block .select { width: 100%; }
 .select-chev {
   position: absolute; right: 11px;
@@ -480,6 +480,30 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; }
 .modal-form h2 { font-size: 20px; }
 .modal-form p { margin: 0; color: var(--text-2); }
 .modal-actions { display: flex; flex-direction: row-reverse; gap: 8px; }
+
+/* AI Brief */
+.brief-btn { margin-left: 4px; min-height: 34px; height: 34px; padding: 0 14px 0 11px; gap: 6px; font-size: 13px; color: var(--accent-text); border-color: var(--border); }
+.brief-btn .ico { width: 17px; height: 17px; }
+.modal.wide { width: min(580px, calc(100vw - 32px)); }
+.brief-form { gap: 14px; }
+.brief-head { display: flex; align-items: center; gap: 10px; color: var(--accent-text); }
+.brief-head .ico { width: 22px; height: 22px; }
+.brief-head h2 { color: var(--text); }
+.brief-text {
+  min-height: 210px; max-height: 42vh;
+  font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+}
+.field-label { font-size: 12px; font-weight: 600; letter-spacing: .3px; color: var(--text-2); }
+.ai-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.ai-btn { justify-content: center; padding: 0 8px; }
+.ai-btn:hover { border-color: var(--accent); color: var(--accent-text); background: var(--accent-weak); }
+@media (max-width: 560px) {
+  .brief-btn { width: 36px; padding: 0; justify-content: center; }
+  .brief-label { display: none; }
+  .ai-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .brief-text { min-height: 160px; }
+}
 
 /* Settings */
 .settings-form { gap: 20px; }

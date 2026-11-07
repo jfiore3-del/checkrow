@@ -48,6 +48,8 @@
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     upload: '<path d="M12 16V5M7 10l5-5 5 5M5 20h14"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
+    sparkle: '<path d="M11 3.5l1.8 4.9 4.9 1.8-4.9 1.8L11 16.9l-1.8-4.9-4.9-1.8 4.9-1.8z"/><path d="M18.5 14.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
+    copy: '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
     cloud: '<path d="M7 18.5h10.5a4 4 0 0 0 .7-7.94A6 6 0 0 0 6.6 9.1 4.7 4.7 0 0 0 7 18.5z"/>',
     device: '<rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2.5 19h19"/>',
@@ -525,6 +527,7 @@
       `<select id="sortSel" class="select pill" aria-label="Sort tasks by">` +
       SORTS.map(([k, label]) => `<option value="${k}"${currentSort() === k ? ' selected' : ''}>${label}${state.defaultSort === k ? ' (default)' : ''}</option>`).join('') +
       `</select>${icon('chevron', 'select-chev')}</span></label>` +
+      `<button type="button" class="btn brief-btn" data-action="brief" aria-label="AI Brief">${icon('sparkle')}<span class="brief-label">AI Brief</span></button>` +
       (v.list ? `<button type="button" class="icon-btn" data-action="list-menu" aria-label="List options" aria-haspopup="menu" aria-expanded="false">${icon('more', 'fill')}</button>` : '') +
       `</div></div>` +
       `<form class="add-row" id="addForm" autocomplete="off"><span class="add-ico">${icon('plus')}</span>` +
@@ -646,6 +649,132 @@
         resolve(input ? input.value.trim() || null : true);
       }, { once: true });
     });
+  }
+
+  // ---------- AI Brief ----------
+  // Builds a plain-text summary of open tasks and hands it to the AI assistant the
+  // person picks. Nothing is sent anywhere until they click a button; the brief is
+  // copied to the clipboard and the assistant opens in a new tab (pre-filled where
+  // the site supports it, otherwise the person pastes).
+  const AI_TARGETS = [
+    { id: 'claude', name: 'Claude', url: 'https://claude.ai/new', param: 'q' },
+    { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com/', param: 'q' },
+    { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com/app', param: null },
+    { id: 'grok', name: 'Grok', url: 'https://grok.com/', param: 'q' },
+  ];
+  const BRIEF_PROMPT =
+    'Here is my to-do list from CheckRow. Give me a short morning brief: what’s overdue, what’s due today, ' +
+    'the three things I should focus on first and why, and anything worth rescheduling. Keep it concise.';
+
+  function buildBrief(scope) {
+    const today = todayKey();
+    const weekOut = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return toKey(d); })();
+    const open = state.tasks
+      .filter((t) => !t.done && (scope === 'all' || t.listId === scope))
+      .sort((a, b) => b.priority - a.priority || dueCmp(a, b) || a.order - b.order);
+    const doneToday = state.tasks.filter((t) => t.done && (scope === 'all' || t.listId === scope) &&
+      t.completedAt && toKey(new Date(t.completedAt)) === today).length;
+    const groups = [
+      ['Overdue', (t) => t.due && t.due < today],
+      ['Due today', (t) => t.due === today],
+      ['Coming up (next 7 days)', (t) => t.due > today && t.due <= weekOut],
+      ['Later', (t) => t.due > weekOut],
+      ['No due date', (t) => !t.due],
+    ];
+    const line = (t) => {
+      const bits = [];
+      if (t.priority) bits.push(`${PRI[t.priority]} priority`);
+      if (t.due && t.due !== today) bits.push(`due ${fmtDue(t.due)}`);
+      if (t.starred) bits.push('starred');
+      if (scope === 'all') { const l = listById(t.listId); if (l) bits.push(`list: ${l.name}`); }
+      let s = `- ${t.title.trim() || 'Untitled task'}${bits.length ? ` (${bits.join(', ')})` : ''}`;
+      const notes = t.notes.trim().replace(/\s*\n+\s*/g, ' / ');
+      if (notes) s += `\n  Notes: ${notes.length > 240 ? `${notes.slice(0, 237)}...` : notes}`;
+      return s;
+    };
+    const dateText = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    const scopeText = scope === 'all' ? 'all lists' : `the "${listById(scope)?.name || ''}" list`;
+    const overdue = open.filter(groups[0][1]).length;
+    const dueToday = open.filter(groups[1][1]).length;
+    const out = [
+      BRIEF_PROMPT,
+      '',
+      `My tasks as of ${dateText} (${scopeText}): ${open.length} open, ${overdue} overdue, ${dueToday} due today` +
+        (doneToday ? `, ${doneToday} already completed today` : '') + '.',
+    ];
+    if (!open.length) out.push('', 'No open tasks right now.');
+    for (const [title, test] of groups) {
+      const ts = open.filter(test);
+      if (!ts.length) continue;
+      out.push('', `${title}:`, ...ts.map(line));
+    }
+    return out.join('\n');
+  }
+
+  async function copyText(text, fallbackEl) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      if (!fallbackEl) return false;
+      fallbackEl.select();
+      try { return document.execCommand('copy'); } catch (err) { return false; }
+    }
+  }
+  function openUrl(url) {
+    if (isExtension) chrome.tabs.create({ url });
+    else window.open(url, '_blank', 'noopener');
+  }
+
+  function openBrief() {
+    const pasteKey = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘V' : 'Ctrl+V';
+    modal.returnValue = '';
+    modal.classList.add('wide');
+    modal.innerHTML =
+      `<form method="dialog" class="modal-form brief-form">` +
+      `<div class="brief-head">${icon('sparkle')}<h2 id="briefTitle">AI Brief</h2></div>` +
+      `<p>Send your tasks to an AI assistant for a morning brief or a plan for the day. Edit the text below first if you like.</p>` +
+      `<div class="field"><label for="briefScope">Include</label><span class="select-wrap block">` +
+      `<select id="briefScope" class="input select"><option value="all">All lists</option>` +
+      state.lists.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('') +
+      `</select>${icon('chevron', 'select-chev')}</span></div>` +
+      `<div class="field"><label for="briefText">Brief</label>` +
+      `<textarea id="briefText" class="input brief-text" rows="11" spellcheck="false"></textarea></div>` +
+      `<div class="field"><span class="field-label" id="aiLabel">Open in</span>` +
+      `<div class="ai-grid" role="group" aria-labelledby="aiLabel">` +
+      AI_TARGETS.map((a) => `<button type="button" class="btn ai-btn" data-ai="${a.id}">${esc(a.name)}</button>`).join('') +
+      `</div><p class="choices-note">The brief is copied for you. If the chat box isn’t filled in, press ${pasteKey} to paste.</p></div>` +
+      `<div class="modal-actions"><button value="ok" class="btn">Close</button>` +
+      `<button type="button" class="btn" data-ai="copy">${icon('copy')}Copy brief</button></div>` +
+      `</form>`;
+    const scopeSel = $('#briefScope', modal);
+    const textEl = $('#briefText', modal);
+    textEl.value = buildBrief('all');
+    scopeSel.addEventListener('change', () => { textEl.value = buildBrief(scopeSel.value); });
+    modal.querySelector('form').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-ai]');
+      if (!b) return;
+      const text = textEl.value;
+      const copied = await copyText(text, textEl);
+      if (b.dataset.ai === 'copy') {
+        toast(copied ? 'Brief copied' : 'Couldn’t copy. Select the text and copy it yourself.');
+        return;
+      }
+      const target = AI_TARGETS.find((a) => a.id === b.dataset.ai);
+      if (!target) return;
+      // Very long briefs make URLs unreliable, so those rely on paste only.
+      const url = target.param && text.length <= 6000
+        ? `${target.url}?${target.param}=${encodeURIComponent(text)}`
+        : target.url;
+      openUrl(url);
+      modal.close();
+      toast(copied
+        ? `Brief copied. If ${target.name} isn’t filled in, press ${pasteKey} to paste.`
+        : `Opened ${target.name}. Copy the brief from CheckRow and paste it in.`);
+    });
+    modal.addEventListener('close', () => modal.classList.remove('wide'), { once: true });
+    modal.showModal();
+    scopeSel.focus();
   }
 
   // ---------- Settings ----------
@@ -1002,6 +1131,9 @@
         break;
       case 'list-menu':
         if (menuEl) closeMenu(); else openListMenu(b);
+        break;
+      case 'brief':
+        openBrief(b);
         break;
       case 'pick-due':
       case 'pick-pri':
