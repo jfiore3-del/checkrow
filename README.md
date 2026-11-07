@@ -11,9 +11,9 @@ A clean, Google Workspace–style to-do list that lives in the Chrome or Edge si
 - **Details panel**: notes, due date, priority (Low / Medium / High) and moving a task to another list.
 - **Sorting**: Priority (the default), Date, or My order (drag to reorder). Change the default for every list in **Settings**, or sort one list differently from the menu at the top of that list.
 - **AI Brief**: one click sends your open tasks (overdue, due today, coming up, by priority) to Claude, ChatGPT, Gemini or Grok for a morning brief. The brief is copied to your clipboard and the assistant opens in a new tab, pre-filled where the site supports it. You can edit the brief first or limit it to one list.
-- **Send to chat**: from AI Brief, send your task list to Teams, Slack or Google Chat. It's copied for a quick paste, and Teams opens a chat with yourself with the list already typed if you add your work email in Settings.
+- **Send to chat**: from AI Brief, send your task list to Teams, Slack or Google Chat. It's copied for a quick paste, Add your work email in Settings and Teams opens a chat with yourself with the list already typed, while Google Chat and Gemini open in your work Google account rather than a personal one.
 - **Daily reminder**: pick your work days and a time. A notification pops up with a quick summary (overdue, due today, high priority); click it to open AI Brief. If your browser is closed at that time, it reminds you when you next open it that day. Only one of your computers shows it.
-- **Settings**: daily reminder, default sort order, Teams email and theme. The default sort syncs to your other computers.
+- **Settings**: daily reminder, default sort order, work email and theme. The default sort syncs to your other computers.
 - **Search** across titles and notes.
 - **Undo** for completing, deleting and clearing tasks.
 - **Light and dark themes**, following the system by default.

@@ -670,10 +670,14 @@
     { id: 'slack', name: 'Slack', url: 'https://app.slack.com/client' },
     { id: 'gchat', name: 'Google Chat', url: 'https://chat.google.com/' },
   ];
+  // With a work email saved: Teams opens a chat with yourself, pre-filled; Google
+  // apps open in that Google account (authuser) when several are signed in.
+  const withGoogleAccount = (url) => (state.chatEmail ? `${url}${url.includes('?') ? '&' : '?'}authuser=${encodeURIComponent(state.chatEmail)}` : url);
   function chatUrl(target, text) {
     if (target.id === 'teams' && state.chatEmail && text.length <= 3000) {
       return `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(state.chatEmail)}&message=${encodeURIComponent(text)}`;
     }
+    if (target.id === 'gchat') return withGoogleAccount(target.url);
     return target.url;
   }
   const BRIEF_PROMPT =
@@ -762,7 +766,7 @@
       `<div class="ai-grid chat-grid" role="group" aria-labelledby="chatLabel">` +
       CHAT_TARGETS.map((c) => `<button type="button" class="btn ai-btn" data-chat="${c.id}">${esc(c.name)}</button>`).join('') +
       `</div><p class="choices-note">The brief is copied for you. If the message box isn’t filled in, press ${pasteKey} to paste.` +
-      (state.chatEmail ? '' : ' Add your work email in Settings and Teams opens a chat with yourself with the brief already typed.') +
+      (state.chatEmail ? '' : ' Add your work email in Settings so Teams, Google Chat and Gemini open in your work account. Teams also opens a chat with yourself with the brief typed in.') +
       `</p></div>` +
       `<div class="modal-actions"><button value="ok" class="btn">Close</button>` +
       `<button type="button" class="btn" data-ai="copy">${icon('copy')}Copy brief</button></div>` +
@@ -782,7 +786,7 @@
         const url = chatUrl(target, text);
         openUrl(url);
         modal.close();
-        const prefilled = url !== target.url;
+        const prefilled = target.id === 'teams' && url !== target.url;
         toast(prefilled
           ? 'Opening a Teams chat with yourself. Press Enter to send.'
           : copied
@@ -801,9 +805,10 @@
       const target = AI_TARGETS.find((a) => a.id === b.dataset.ai);
       if (!target) return;
       // Very long briefs make URLs unreliable, so those rely on paste only.
-      const url = target.param && text.length <= 6000
+      let url = target.param && text.length <= 6000
         ? `${target.url}?${target.param}=${encodeURIComponent(text)}`
         : target.url;
+      if (target.id === 'gemini') url = withGoogleAccount(url);
       openUrl(url);
       modal.close();
       toast(copied
@@ -875,9 +880,9 @@
       `<p class="choices-note">Applies to every list. You can still sort one list differently from the menu at the top of that list.</p>` +
       `</fieldset>` +
       `<fieldset class="choices"><legend>AI Brief</legend>` +
-      `<label for="chatEmail" class="choice-label">Your work email for Teams <span class="optional">(optional)</span></label>` +
+      `<label for="chatEmail" class="choice-label">Your work email <span class="optional">(optional)</span></label>` +
       `<input id="chatEmail" class="input" type="email" autocomplete="email" placeholder="you@company.com" value="${esc(state.chatEmail)}">` +
-      `<p class="choices-note">Lets the Teams button open a chat with yourself with the brief already typed. Stays on this computer.</p>` +
+      `<p class="choices-note">Opens Teams, Google Chat and Gemini in your work account, not a personal one. Teams also opens a chat with yourself with the brief typed in. Stays on this computer.</p>` +
       `</fieldset>` +
       `<fieldset class="choices"><legend>Theme</legend><div class="choice-row">` +
       [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]
