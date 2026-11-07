@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>CheckRow</title>
+<link rel="icon" href="icons/checkrow-favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <button class="icon-btn" id="menuBtn" type="button" aria-label="Toggle sidebar" aria-controls="sidebar"></button>
+  <div class="brand">
+    <img src="icons/checkrow-icon.svg" width="34" height="34" alt="">
+    <span class="brand-name">CheckRow</span>
+  </div>
+  <div class="search" role="search">
+    <span class="search-ico" id="searchIco"></span>
+    <input id="search" type="search" placeholder="Search tasks" aria-label="Search tasks" autocomplete="off">
+  </div>
+  <button class="icon-btn" id="openTabBtn" type="button" aria-label="Open in a new tab" hidden></button>
+  <button class="icon-btn" id="themeBtn" type="button" aria-label="Switch theme"></button>
+</header>
+
+<div class="layout">
+  <nav class="sidebar" id="sidebar" aria-label="Views and lists"></nav>
+  <main class="main" id="main"></main>
+  <aside class="details" id="details" aria-label="Task details" hidden></aside>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<dialog class="modal" id="modal"></dialog>
+<input type="file" id="importFile" accept="application/json,.json" hidden>
+
+<script src="app.js"></script>
+</body>
+</html>

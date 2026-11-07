@@ -1,0 +1,817 @@
+/* CheckRow — a Workspace-style to-do list.
+ * Plain JavaScript, no build step. Data lives in localStorage on this device.
+ * Runs as a normal web page or as a Chrome/Edge extension (side panel).
+ */
+(() => {
+  'use strict';
+
+  const STORE_KEY = 'checkrow:v1';
+  const PRI = ['None', 'Low', 'Medium', 'High'];
+  const SORTS = [['order', 'My order'], ['due', 'Date'], ['priority', 'Priority']];
+  const VIEWS = [
+    ['all', 'All tasks', 'inbox'],
+    ['today', 'Today', 'calendar'],
+    ['starred', 'Starred', 'star'],
+  ];
+
+  // ---------- Helpers ----------
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+
+  const ICONS = {
+    menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
+    star: '<path d="M12 3.6l2.6 5.2 5.8.9-4.2 4.1 1 5.7L12 16.8l-5.2 2.7 1-5.7-4.2-4.1 5.8-.9z"/>',
+    inbox: '<path d="M3.5 13h4.5l1.5 3h5l1.5-3h4.5"/><path d="M5.5 5h13l2 8v5.5a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5V13z"/>',
+    calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+    list: '<path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" stroke-width="2.6"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6L6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4"/>',
+    moon: '<path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/>',
+    more: '<circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/>',
+    chevron: '<path d="M9 6l6 6-6 6"/>',
+    close: '<path d="M6 6l12 12M18 6L6 18"/>',
+    details: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+    flag: '<path d="M5.5 21V4M5.5 4.5h11l-2.2 4.2 2.2 4.3h-11"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12.5A1.5 1.5 0 0 0 8.5 21h7a1.5 1.5 0 0 0 1.5-1.5L18 7M9 7V4h6v3"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    grip: '<path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" stroke-width="3"/>',
+    download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+    upload: '<path d="M12 16V5M7 10l5-5 5 5M5 20h14"/>',
+    external: '<path d="M14 4h6v6M20 4l-9 9M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
+    party: '<path d="M4 20l4.5-12 7.5 7.5z"/><path d="M14 4.5c0 1.5 1 2 2 2M19.5 9.5c-1.5 0-2 1-2 2M15 9l4-4M10.5 3.5l.5 1.5M20.5 13.5l-1.5-.5"/>',
+  };
+  const icon = (name, cls = '') => (
+    `<svg class="ico ${cls}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ` +
+    `stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`
+  );
+
+  // ---------- Dates ----------
+  const pad = (n) => String(n).padStart(2, '0');
+  const toKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const todayKey = () => toKey(new Date());
+  const parseKey = (k) => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); };
+  function fmtDue(k) {
+    const d = parseKey(k);
+    const t = parseKey(todayKey());
+    const diff = Math.round((d - t) / 86400000);
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Tomorrow';
+    if (diff === -1) return 'Yesterday';
+    const opts = { weekday: 'short', month: 'short', day: 'numeric' };
+    if (d.getFullYear() !== t.getFullYear()) opts.year = 'numeric';
+    return d.toLocaleDateString(undefined, opts);
+  }
+  function dueClass(t) {
+    if (!t.due || t.done) return '';
+    const k = todayKey();
+    return t.due < k ? 'overdue' : t.due === k ? 'due-today' : '';
+  }
+
+  // ---------- State ----------
+  function freshState() {
+    const id = uid();
+    return { version: 1, lists: [{ id, name: 'My Tasks' }], tasks: [], view: id, sort: 'order', theme: 'system', showCompleted: {} };
+  }
+  const isValid = (s) => !!s && Array.isArray(s.lists) && s.lists.length > 0 && Array.isArray(s.tasks);
+  function normalize(s) {
+    const lists = s.lists
+      .filter((l) => l && typeof l.id === 'string')
+      .map((l) => ({ id: l.id, name: String(l.name || 'Untitled list').slice(0, 80) }));
+    if (!lists.length) return freshState();
+    const listIds = new Set(lists.map((l) => l.id));
+    const tasks = s.tasks
+      .filter((t) => t && typeof t.id === 'string' && listIds.has(t.listId))
+      .map((t) => ({
+        id: t.id,
+        listId: t.listId,
+        title: String(t.title ?? ''),
+        notes: String(t.notes ?? ''),
+        due: /^\d{4}-\d{2}-\d{2}$/.test(t.due) ? t.due : '',
+        priority: [0, 1, 2, 3].includes(t.priority) ? t.priority : 0,
+        starred: !!t.starred,
+        done: !!t.done,
+        completedAt: Number(t.completedAt) || 0,
+        createdAt: Number(t.createdAt) || Date.now(),
+        order: Number(t.order) || 0,
+      }));
+    const views = new Set(['all', 'today', 'starred', ...listIds]);
+    return {
+      version: 1,
+      lists,
+      tasks,
+      view: views.has(s.view) ? s.view : lists[0].id,
+      sort: SORTS.some(([k]) => k === s.sort) ? s.sort : 'order',
+      theme: ['system', 'light', 'dark'].includes(s.theme) ? s.theme : 'system',
+      showCompleted: s.showCompleted && typeof s.showCompleted === 'object' ? s.showCompleted : {},
+    };
+  }
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (isValid(s)) return normalize(s);
+      }
+    } catch (e) { /* storage unavailable or corrupt: start fresh */ }
+    return freshState();
+  }
+  function save() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    } catch (e) {
+      toast('Couldn’t save. Browser storage is unavailable.');
+    }
+  }
+
+  let state = load();
+  const ui = { search: '', openTaskId: null, dragId: null };
+
+  // ---------- Queries ----------
+  const listById = (id) => state.lists.find((l) => l.id === id);
+  const taskById = (id) => state.tasks.find((t) => t.id === id);
+  const listIndex = (id) => state.lists.findIndex((l) => l.id === id);
+
+  function inView(t, view) {
+    if (view === 'all') return true;
+    if (view === 'starred') return t.starred;
+    if (view === 'today') return !!t.due && t.due <= todayKey();
+    return t.listId === view;
+  }
+  function matches(t, q) {
+    if (!q) return true;
+    q = q.toLowerCase();
+    return t.title.toLowerCase().includes(q) || t.notes.toLowerCase().includes(q);
+  }
+  function viewInfo() {
+    const builtIn = VIEWS.find(([id]) => id === state.view);
+    if (builtIn) return { id: state.view, title: builtIn[1], list: null };
+    const l = listById(state.view);
+    return { id: state.view, title: l ? l.name : '', list: l || null };
+  }
+  const openCount = (view) => state.tasks.filter((t) => !t.done && inView(t, view)).length;
+  const dueCmp = (a, b) => (a.due === b.due ? 0 : !a.due ? 1 : !b.due ? -1 : a.due < b.due ? -1 : 1);
+  function compare(a, b) {
+    switch (state.sort) {
+      case 'due': return dueCmp(a, b) || b.priority - a.priority || a.order - b.order;
+      case 'priority': return b.priority - a.priority || dueCmp(a, b) || a.order - b.order;
+      default: return listIndex(a.listId) - listIndex(b.listId) || a.order - b.order;
+    }
+  }
+  function visibleTasks() {
+    const ts = state.tasks.filter((t) => inView(t, state.view) && matches(t, ui.search));
+    return {
+      active: ts.filter((t) => !t.done).sort(compare),
+      done: ts.filter((t) => t.done).sort((a, b) => b.completedAt - a.completedAt),
+    };
+  }
+  const doneOpen = () => !!ui.search || !!state.showCompleted[state.view];
+
+  // ---------- Mutations ----------
+  function topOrder(listId) {
+    return Math.min(0, ...state.tasks.filter((t) => t.listId === listId).map((t) => t.order)) - 1;
+  }
+  function addTask(title) {
+    const listId = listById(state.view) ? state.view : state.lists[0].id;
+    const t = {
+      id: uid(), listId, title, notes: '',
+      due: state.view === 'today' ? todayKey() : '',
+      priority: 0,
+      starred: state.view === 'starred',
+      done: false, completedAt: 0, createdAt: Date.now(),
+      order: topOrder(listId),
+    };
+    state.tasks.push(t);
+    save();
+    return t;
+  }
+  function setDone(t, done) {
+    t.done = done;
+    t.completedAt = done ? Date.now() : 0;
+    save();
+  }
+  function removeTask(t) {
+    const i = state.tasks.indexOf(t);
+    if (i < 0) return () => {};
+    state.tasks.splice(i, 1);
+    if (ui.openTaskId === t.id) ui.openTaskId = null;
+    save();
+    return () => {
+      state.tasks.splice(Math.min(i, state.tasks.length), 0, t);
+      save();
+      render();
+    };
+  }
+
+  // ---------- DOM refs ----------
+  const sidebar = $('#sidebar');
+  const main = $('#main');
+  const details = $('#details');
+  const scrim = $('#scrim');
+  const toastEl = $('#toast');
+  const modal = $('#modal');
+  const importFile = $('#importFile');
+  const searchInput = $('#search');
+  const themeBtn = $('#themeBtn');
+  const menuBtn = $('#menuBtn');
+  const openTabBtn = $('#openTabBtn');
+
+  const narrowMQ = matchMedia('(max-width: 860px)');
+  const overlayDetailsMQ = matchMedia('(max-width: 1180px)');
+  const darkMQ = matchMedia('(prefers-color-scheme: dark)');
+
+  // ---------- Rendering ----------
+  function render() {
+    applyTheme();
+    renderSidebar();
+    renderMain();
+    renderDetails();
+  }
+
+  function navItem(id, label, ic) {
+    const active = state.view === id;
+    const n = openCount(id);
+    return `<li><button type="button" class="nav-item${active ? ' active' : ''}" data-view="${esc(id)}"${active ? ' aria-current="page"' : ''}>` +
+      `${icon(ic)}<span class="nav-label">${esc(label)}</span>${n ? `<span class="count" aria-label="${n} open">${n}</span>` : ''}</button></li>`;
+  }
+
+  function renderSidebar() {
+    sidebar.innerHTML =
+      `<button type="button" class="create-btn" data-action="create">${icon('plus')}<span>Create</span></button>` +
+      `<ul class="nav">${VIEWS.map(([id, label, ic]) => navItem(id, label, ic)).join('')}</ul>` +
+      `<div class="nav-heading"><span>Lists</span>` +
+      `<button type="button" class="icon-btn sm" data-action="new-list" aria-label="Create new list">${icon('plus')}</button></div>` +
+      `<ul class="nav">${state.lists.map((l) => navItem(l.id, l.name, 'list')).join('')}</ul>` +
+      `<div class="sidebar-foot">` +
+      `<button type="button" class="text-btn" data-action="export">${icon('download')}Export backup</button>` +
+      `<button type="button" class="text-btn" data-action="import">${icon('upload')}Import backup</button>` +
+      `</div>`;
+  }
+
+  function taskRow(t, v, canDrag) {
+    const meta = [];
+    if (t.due) meta.push(`<span class="chip ${dueClass(t)}">${icon('calendar')}${esc(fmtDue(t.due))}</span>`);
+    if (t.priority) meta.push(`<span class="chip pri-${t.priority}">${icon('flag')}${PRI[t.priority]}</span>`);
+    if (!v.list) {
+      const l = listById(t.listId);
+      if (l) meta.push(`<span class="chip">${esc(l.name)}</span>`);
+    }
+    if (t.notes.trim()) meta.push(`<span class="notes-preview">${esc(t.notes.trim().split('\n')[0])}</span>`);
+    const label = esc(t.title || 'Untitled task');
+    return `<li class="task${t.done ? ' is-done' : ''}${ui.openTaskId === t.id ? ' is-open' : ''}" data-id="${esc(t.id)}">` +
+      (canDrag ? `<button type="button" class="grip" tabindex="-1" aria-hidden="true">${icon('grip')}</button>` : '') +
+      `<button type="button" class="check" data-action="toggle" role="checkbox" aria-checked="${t.done}" aria-label="Done: ${label}">` +
+      `<span class="check-circle">${icon('check')}</span></button>` +
+      `<div class="task-body">` +
+      `<input class="task-title" value="${esc(t.title)}" placeholder="Title" aria-label="Task title"${t.done ? ' readonly' : ''}>` +
+      (meta.length ? `<div class="meta" data-action="open">${meta.join('')}</div>` : '') +
+      `</div>` +
+      `<div class="row-actions">` +
+      `<button type="button" class="icon-btn star${t.starred ? ' on' : ''}" data-action="star" aria-pressed="${t.starred}" aria-label="Star: ${label}">${icon('star')}</button>` +
+      `<button type="button" class="icon-btn" data-action="open" aria-label="Details: ${label}">${icon('details')}</button>` +
+      `</div></li>`;
+  }
+
+  function emptyState(v, anyDone) {
+    let ic = 'party';
+    let title = 'No tasks yet';
+    let text = 'Add a task above to get started.';
+    if (ui.search) { ic = 'search'; title = 'No matching tasks'; text = 'Try a different search.'; }
+    else if (anyDone) { title = 'All done'; text = 'Nice work. Everything here is checked off.'; }
+    else if (v.id === 'starred') { ic = 'star'; title = 'No starred tasks'; text = 'Star a task to keep it here.'; }
+    else if (v.id === 'today') { ic = 'calendar'; title = 'Nothing due today'; text = 'Tasks with a due date of today or earlier show up here.'; }
+    return `<div class="empty">${icon(ic)}<p class="empty-title">${title}</p><p>${text}</p></div>`;
+  }
+
+  function renderMain() {
+    const v = viewInfo();
+    const { active, done } = visibleTasks();
+    const canDrag = state.sort === 'order' && !!v.list && !ui.search && active.length > 1;
+    const open = doneOpen();
+    main.innerHTML =
+      `<div class="wrap">` +
+      `<div class="main-head"><h1>${esc(v.title)}</h1><div class="head-actions">` +
+      `<label class="sort"><span class="sort-label">Sort</span><select id="sortSel" aria-label="Sort tasks by">` +
+      SORTS.map(([k, label]) => `<option value="${k}"${state.sort === k ? ' selected' : ''}>${label}</option>`).join('') +
+      `</select></label>` +
+      (v.list ? `<button type="button" class="icon-btn" data-action="list-menu" aria-label="List options" aria-haspopup="menu" aria-expanded="false">${icon('more', 'fill')}</button>` : '') +
+      `</div></div>` +
+      `<form class="add-row" id="addForm" autocomplete="off"><span class="add-ico">${icon('plus')}</span>` +
+      `<input id="addInput" placeholder="Add a task" aria-label="Add a task" maxlength="500"></form>` +
+      (ui.search ? `<p class="hint">Results for “${esc(ui.search)}”</p>` : '') +
+      `<ul class="tasks" id="activeList">${active.map((t) => taskRow(t, v, canDrag)).join('')}</ul>` +
+      (!active.length ? emptyState(v, done.length > 0) : '') +
+      (done.length
+        ? `<section class="done"><button type="button" class="done-toggle" data-action="toggle-done" aria-expanded="${open}">` +
+          `${icon('chevron', open ? 'rot' : '')}Completed (${done.length})</button>` +
+          (open ? `<ul class="tasks">${done.map((t) => taskRow(t, v, false)).join('')}</ul>` : '') +
+          `</section>`
+        : '') +
+      `</div>`;
+  }
+
+  function renderDetails() {
+    const t = taskById(ui.openTaskId);
+    if (!t) {
+      ui.openTaskId = null;
+      details.hidden = true;
+      details.innerHTML = '';
+      syncScrim();
+      return;
+    }
+    // Remember what had focus inside the panel so a re-render doesn't steal it.
+    const a = document.activeElement;
+    let keep = null;
+    if (a && details.contains(a)) {
+      if (a.id) keep = `#${a.id}`;
+      else if (a.name) keep = `input[name="${a.name}"]:checked`;
+    }
+    const created = new Date(t.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    details.hidden = false;
+    details.innerHTML =
+      `<div class="details-head"><h2>Task details</h2>` +
+      `<button type="button" class="icon-btn" data-action="close-details" aria-label="Close details">${icon('close')}</button></div>` +
+      `<div class="field"><label for="dTitle">Title</label>` +
+      `<input id="dTitle" class="input title-input" value="${esc(t.title)}" placeholder="Title" maxlength="500"></div>` +
+      `<div class="field"><label for="dNotes">Details</label>` +
+      `<textarea id="dNotes" class="input" rows="5" placeholder="Add details">${esc(t.notes)}</textarea></div>` +
+      `<div class="field"><label for="dDue">Due date</label><div class="row">` +
+      `<input id="dDue" class="input" type="date" value="${esc(t.due)}">` +
+      (t.due ? `<button type="button" class="text-btn" data-action="clear-due">Clear</button>` : '') +
+      `</div></div>` +
+      `<fieldset class="field"><legend>Priority</legend><div class="seg">` +
+      PRI.map((p, i) => `<label class="seg-opt pri-${i}"><input type="radio" name="dPri" value="${i}"${t.priority === i ? ' checked' : ''}>` +
+        `<span>${i ? icon('flag') : ''}${p}</span></label>`).join('') +
+      `</div></fieldset>` +
+      `<div class="field"><label for="dList">List</label><select id="dList" class="input">` +
+      state.lists.map((l) => `<option value="${esc(l.id)}"${l.id === t.listId ? ' selected' : ''}>${esc(l.name)}</option>`).join('') +
+      `</select></div>` +
+      `<p class="created">Created ${esc(created)}</p>` +
+      `<div class="details-foot">` +
+      `<button type="button" class="btn" data-action="details-done">${icon('check')}${t.done ? 'Mark not done' : 'Mark done'}</button>` +
+      `<button type="button" class="btn danger" data-action="delete-task">${icon('trash')}Delete</button>` +
+      `</div>`;
+    if (keep) details.querySelector(keep)?.focus();
+    syncScrim();
+  }
+
+  function syncScrim() {
+    const sidebarOverlay = narrowMQ.matches && document.body.classList.contains('sidebar-open');
+    const detailsOverlay = overlayDetailsMQ.matches && !details.hidden;
+    scrim.hidden = !(sidebarOverlay || detailsOverlay);
+    openTabBtn.hidden = !(isExtension && narrowMQ.matches);
+  }
+
+  // ---------- Theme ----------
+  const isDark = () => state.theme === 'dark' || (state.theme === 'system' && darkMQ.matches);
+  function applyTheme() {
+    const root = document.documentElement;
+    if (state.theme === 'system') delete root.dataset.theme;
+    else root.dataset.theme = state.theme;
+    themeBtn.innerHTML = icon(isDark() ? 'sun' : 'moon');
+    themeBtn.setAttribute('aria-label', isDark() ? 'Switch to light theme' : 'Switch to dark theme');
+  }
+
+  // ---------- Toast ----------
+  let toastTimer = 0;
+  function hideToast() { toastEl.hidden = true; clearTimeout(toastTimer); }
+  function toast(message, undo) {
+    clearTimeout(toastTimer);
+    toastEl.innerHTML = `<span>${esc(message)}</span>${undo ? '<button type="button" class="toast-btn">Undo</button>' : ''}`;
+    toastEl.hidden = false;
+    if (undo) {
+      toastEl.querySelector('.toast-btn').addEventListener('click', () => { hideToast(); undo(); });
+    }
+    toastTimer = setTimeout(hideToast, undo ? 6000 : 4000);
+  }
+
+  // ---------- Modal ----------
+  function ask({ title, message = '', value = null, confirm = 'OK', danger = false }) {
+    return new Promise((resolve) => {
+      modal.returnValue = '';
+      modal.innerHTML =
+        `<form method="dialog" class="modal-form"><h2 id="modalTitle">${esc(title)}</h2>` +
+        (message ? `<p>${esc(message)}</p>` : '') +
+        (value !== null ? `<input id="modalInput" class="input" value="${esc(value)}" aria-labelledby="modalTitle" required maxlength="80" autocomplete="off">` : '') +
+        `<div class="modal-actions">` +
+        `<button value="ok" class="btn ${danger ? 'danger solid' : 'primary'}">${esc(confirm)}</button>` +
+        `<button value="cancel" class="btn" formnovalidate>Cancel</button>` +
+        `</div></form>`;
+      modal.showModal();
+      const input = $('#modalInput', modal);
+      if (input) input.select();
+      modal.addEventListener('close', () => {
+        if (modal.returnValue !== 'ok') return resolve(null);
+        resolve(input ? input.value.trim() || null : true);
+      }, { once: true });
+    });
+  }
+
+  // ---------- Menu ----------
+  let menuEl = null;
+  function closeMenu() {
+    if (!menuEl) return;
+    menuEl.anchor?.setAttribute('aria-expanded', 'false');
+    menuEl.remove();
+    menuEl = null;
+  }
+  function openMenu(anchor, items) {
+    closeMenu();
+    menuEl = document.createElement('div');
+    menuEl.className = 'menu';
+    menuEl.setAttribute('role', 'menu');
+    menuEl.anchor = anchor;
+    for (const it of items) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'menu-item' + (it.danger ? ' danger' : '');
+      b.setAttribute('role', 'menuitem');
+      b.textContent = it.label;
+      b.disabled = !!it.disabled;
+      b.addEventListener('click', () => { closeMenu(); it.run(); });
+      menuEl.appendChild(b);
+    }
+    document.body.appendChild(menuEl);
+    const r = anchor.getBoundingClientRect();
+    const w = menuEl.offsetWidth;
+    menuEl.style.top = `${r.bottom + 4}px`;
+    menuEl.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))}px`;
+    anchor.setAttribute('aria-expanded', 'true');
+    menuEl.querySelector('.menu-item:not(:disabled)')?.focus();
+  }
+
+  // ---------- Actions ----------
+  function selectView(id) {
+    state.view = id;
+    save();
+    document.body.classList.remove('sidebar-open');
+    render();
+  }
+
+  function toggleTask(t) {
+    setDone(t, !t.done);
+    render();
+    if (t.done) toast('Task completed', () => { setDone(t, false); render(); });
+  }
+
+  function openDetails(id) {
+    ui.openTaskId = id;
+    render();
+    $('#dTitle')?.focus();
+  }
+  function closeDetails() {
+    const id = ui.openTaskId;
+    ui.openTaskId = null;
+    render();
+    if (id) main.querySelector(`.task[data-id="${CSS.escape(id)}"] [data-action="open"].icon-btn`)?.focus();
+  }
+
+  function deleteTaskWithUndo(t) {
+    const undo = removeTask(t);
+    render();
+    toast('Task deleted', undo);
+  }
+
+  async function newList() {
+    const name = await ask({ title: 'Create new list', value: '', confirm: 'Done' });
+    if (!name) return;
+    const l = { id: uid(), name };
+    state.lists.push(l);
+    selectView(l.id);
+    $('#addInput')?.focus();
+  }
+
+  async function renameList(l) {
+    const name = await ask({ title: 'Rename list', value: l.name, confirm: 'Save' });
+    if (!name || name === l.name) return;
+    l.name = name;
+    save();
+    render();
+  }
+
+  async function deleteList(l) {
+    const n = state.tasks.filter((t) => t.listId === l.id).length;
+    const ok = await ask({
+      title: `Delete “${l.name}”?`,
+      message: n ? `Its ${n} task${n === 1 ? '' : 's'} will be deleted too.` : 'This list is empty.',
+      confirm: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    const li = state.lists.indexOf(l);
+    const removed = state.tasks.filter((t) => t.listId === l.id);
+    state.lists.splice(li, 1);
+    state.tasks = state.tasks.filter((t) => t.listId !== l.id);
+    if (removed.some((t) => t.id === ui.openTaskId)) ui.openTaskId = null;
+    state.view = state.lists[Math.max(0, li - 1)].id;
+    save();
+    render();
+    toast('List deleted', () => {
+      state.lists.splice(Math.min(li, state.lists.length), 0, l);
+      state.tasks.push(...removed);
+      state.view = l.id;
+      save();
+      render();
+    });
+  }
+
+  function deleteCompleted(l) {
+    const removed = state.tasks.filter((t) => t.listId === l.id && t.done);
+    if (!removed.length) return;
+    state.tasks = state.tasks.filter((t) => !(t.listId === l.id && t.done));
+    if (removed.some((t) => t.id === ui.openTaskId)) ui.openTaskId = null;
+    save();
+    render();
+    toast(`${removed.length} completed task${removed.length === 1 ? '' : 's'} deleted`, () => {
+      state.tasks.push(...removed);
+      save();
+      render();
+    });
+  }
+
+  function openListMenu(anchor) {
+    const l = listById(state.view);
+    if (!l) return;
+    const doneCount = state.tasks.filter((t) => t.listId === l.id && t.done).length;
+    openMenu(anchor, [
+      { label: 'Rename list', run: () => renameList(l) },
+      { label: 'Delete all completed tasks', disabled: !doneCount, run: () => deleteCompleted(l) },
+      { label: state.lists.length > 1 ? 'Delete list' : 'Delete list (need at least one)', danger: true, disabled: state.lists.length < 2, run: () => deleteList(l) },
+    ]);
+  }
+
+  function exportData() {
+    const data = { app: 'CheckRow', exportedAt: new Date().toISOString(), ...state };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `checkrow-backup-${todayKey()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Backup downloaded');
+  }
+
+  async function importData(file) {
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+      if (!isValid(data)) throw new Error('invalid');
+    } catch (e) {
+      toast('That file isn’t a CheckRow backup.');
+      return;
+    }
+    const n = data.tasks.length;
+    const ok = await ask({
+      title: 'Replace your tasks?',
+      message: `Everything here will be replaced with the ${data.lists.length} list${data.lists.length === 1 ? '' : 's'} and ${n} task${n === 1 ? '' : 's'} in “${file.name}”.`,
+      confirm: 'Replace',
+      danger: true,
+    });
+    if (!ok) return;
+    const previous = state;
+    state = normalize(data);
+    ui.openTaskId = null;
+    save();
+    render();
+    toast('Backup imported', () => { state = previous; save(); render(); });
+  }
+
+  // ---------- Events: top bar ----------
+  menuBtn.innerHTML = icon('menu');
+  $('#searchIco').innerHTML = icon('search');
+  openTabBtn.innerHTML = icon('external');
+
+  menuBtn.addEventListener('click', () => {
+    if (narrowMQ.matches) document.body.classList.toggle('sidebar-open');
+    else document.body.classList.toggle('sidebar-collapsed');
+    syncScrim();
+  });
+  themeBtn.addEventListener('click', () => {
+    state.theme = isDark() ? 'light' : 'dark';
+    save();
+    applyTheme();
+  });
+  searchInput.addEventListener('input', () => {
+    ui.search = searchInput.value.trim();
+    renderMain();
+  });
+  scrim.addEventListener('click', () => {
+    document.body.classList.remove('sidebar-open');
+    if (overlayDetailsMQ.matches && ui.openTaskId) closeDetails();
+    syncScrim();
+  });
+
+  // Extension only: open the full app in a tab from the side panel.
+  const isExtension = typeof chrome !== 'undefined' && !!(chrome.runtime && chrome.runtime.id) && !!chrome.tabs;
+  openTabBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('index.html') });
+  });
+
+  // ---------- Events: sidebar ----------
+  sidebar.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.view) { selectView(b.dataset.view); return; }
+    switch (b.dataset.action) {
+      case 'create':
+        document.body.classList.remove('sidebar-open');
+        syncScrim();
+        $('#addInput')?.focus();
+        break;
+      case 'new-list': newList(); break;
+      case 'export': exportData(); break;
+      case 'import': importFile.click(); break;
+    }
+  });
+  importFile.addEventListener('change', () => {
+    const f = importFile.files && importFile.files[0];
+    importFile.value = '';
+    if (f) importData(f);
+  });
+
+  // ---------- Events: main ----------
+  main.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-action]');
+    if (!b) return;
+    const li = b.closest('.task');
+    const t = li ? taskById(li.dataset.id) : null;
+    switch (b.dataset.action) {
+      case 'toggle': if (t) toggleTask(t); break;
+      case 'star': if (t) { t.starred = !t.starred; save(); render(); } break;
+      case 'open': if (t) openDetails(t.id); break;
+      case 'toggle-done':
+        state.showCompleted[state.view] = !doneOpen();
+        save();
+        renderMain();
+        $('.done-toggle')?.focus();
+        break;
+      case 'list-menu':
+        if (menuEl) closeMenu(); else openListMenu(b);
+        break;
+    }
+  });
+  main.addEventListener('submit', (e) => {
+    if (e.target.id !== 'addForm') return;
+    e.preventDefault();
+    const title = $('#addInput').value.trim();
+    if (!title) return;
+    addTask(title);
+    renderSidebar();
+    renderMain();
+    $('#addInput').focus();
+  });
+  main.addEventListener('change', (e) => {
+    if (e.target.id === 'sortSel') {
+      state.sort = e.target.value;
+      save();
+      renderMain();
+      $('#sortSel')?.focus();
+    } else if (e.target.matches('.task-title')) {
+      const t = taskById(e.target.closest('.task').dataset.id);
+      if (!t) return;
+      t.title = e.target.value.trim();
+      save();
+      if (ui.openTaskId === t.id) renderDetails();
+    }
+  });
+  main.addEventListener('keydown', (e) => {
+    if (e.target.matches('.task-title') && e.key === 'Enter') {
+      e.preventDefault();
+      e.target.blur();
+    }
+  });
+
+  // Drag to reorder (list views, "My order" sort). Rows only become draggable from the grip.
+  main.addEventListener('mousedown', (e) => {
+    const g = e.target.closest('.grip');
+    if (g) g.closest('.task').draggable = true;
+  });
+  document.addEventListener('mouseup', () => {
+    if (!ui.dragId) main.querySelectorAll('.task[draggable="true"]').forEach((n) => { n.draggable = false; });
+  });
+  const clearDropMarks = () => main.querySelectorAll('.drop-before, .drop-after')
+    .forEach((n) => n.classList.remove('drop-before', 'drop-after'));
+  function endDrag() {
+    ui.dragId = null;
+    clearDropMarks();
+    main.querySelectorAll('.task[draggable="true"]').forEach((n) => { n.draggable = false; n.classList.remove('dragging'); });
+  }
+  main.addEventListener('dragstart', (e) => {
+    const li = e.target.closest && e.target.closest('.task');
+    if (!li || !li.draggable) return;
+    ui.dragId = li.dataset.id;
+    li.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', li.dataset.id);
+  });
+  main.addEventListener('dragover', (e) => {
+    if (!ui.dragId) return;
+    const li = e.target.closest('#activeList .task');
+    if (!li) return;
+    e.preventDefault();
+    clearDropMarks();
+    if (li.dataset.id === ui.dragId) return;
+    const r = li.getBoundingClientRect();
+    li.classList.add(e.clientY < r.top + r.height / 2 ? 'drop-before' : 'drop-after');
+  });
+  main.addEventListener('drop', (e) => {
+    if (!ui.dragId) return;
+    e.preventDefault();
+    const li = e.target.closest('#activeList .task');
+    if (li && li.dataset.id !== ui.dragId) {
+      const before = li.classList.contains('drop-before');
+      const ids = [...main.querySelectorAll('#activeList .task')].map((n) => n.dataset.id).filter((id) => id !== ui.dragId);
+      let idx = ids.indexOf(li.dataset.id);
+      if (!before) idx += 1;
+      ids.splice(idx, 0, ui.dragId);
+      ids.forEach((id, i) => { const t = taskById(id); if (t) t.order = i; });
+      save();
+    }
+    endDrag();
+    renderMain();
+  });
+  main.addEventListener('dragend', () => { if (ui.dragId) { endDrag(); renderMain(); } });
+
+  // ---------- Events: details panel ----------
+  details.addEventListener('input', (e) => {
+    const t = taskById(ui.openTaskId);
+    if (!t) return;
+    if (e.target.id === 'dTitle') t.title = e.target.value;
+    else if (e.target.id === 'dNotes') t.notes = e.target.value;
+    else return;
+    save();
+    renderMain();
+  });
+  details.addEventListener('change', (e) => {
+    const t = taskById(ui.openTaskId);
+    if (!t) return;
+    if (e.target.id === 'dTitle') { t.title = t.title.trim(); }
+    else if (e.target.id === 'dDue') { t.due = e.target.value || ''; }
+    else if (e.target.name === 'dPri') { t.priority = Number(e.target.value); }
+    else if (e.target.id === 'dList') {
+      if (!listById(e.target.value)) return;
+      t.listId = e.target.value;
+      t.order = topOrder(t.listId);
+    } else return;
+    save();
+    renderSidebar();
+    renderMain();
+    renderDetails();
+  });
+  details.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-action]');
+    if (!b) return;
+    const t = taskById(ui.openTaskId);
+    switch (b.dataset.action) {
+      case 'close-details': closeDetails(); break;
+      case 'clear-due':
+        if (t) { t.due = ''; save(); render(); $('#dDue')?.focus(); }
+        break;
+      case 'details-done':
+        if (t) { toggleTask(t); $('[data-action="details-done"]')?.focus(); }
+        break;
+      case 'delete-task':
+        if (t) deleteTaskWithUndo(t);
+        break;
+    }
+  });
+
+  // ---------- Global ----------
+  document.addEventListener('mousedown', (e) => {
+    if (menuEl && !menuEl.contains(e.target) && !e.target.closest('[data-action="list-menu"]')) closeMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || modal.open) return;
+    if (menuEl) { const a = menuEl.anchor; closeMenu(); a?.focus(); return; }
+    if (document.body.classList.contains('sidebar-open')) { document.body.classList.remove('sidebar-open'); syncScrim(); return; }
+    if (ui.openTaskId) closeDetails();
+  });
+  window.addEventListener('resize', closeMenu);
+  narrowMQ.addEventListener('change', () => { document.body.classList.remove('sidebar-open'); syncScrim(); });
+  overlayDetailsMQ.addEventListener('change', syncScrim);
+  darkMQ.addEventListener('change', applyTheme);
+
+  // Keep a side panel and a full tab in sync when both are open.
+  window.addEventListener('storage', (e) => {
+    if (e.key !== STORE_KEY) return;
+    state = load();
+    if (ui.openTaskId && !taskById(ui.openTaskId)) ui.openTaskId = null;
+    render();
+  });
+
+  // Re-render at midnight so "Today" and overdue markers stay right.
+  let lastDay = todayKey();
+  setInterval(() => {
+    const k = todayKey();
+    if (k !== lastDay) { lastDay = k; render(); }
+  }, 60000);
+
+  render();
+  syncScrim();
+})();
