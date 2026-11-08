@@ -523,8 +523,16 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; }
 .choice-help { font-size: 12px; color: var(--text-2); }
 .choice:has(input:checked) .choice-label { color: var(--accent-text); }
 .choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.choice-row .choice { align-items: center; padding: 10px; }
+/* Theme chips: content centered and kept on one line so all three match. */
+.choice-row .choice { align-items: center; justify-content: center; gap: 8px; padding: 10px 8px; min-width: 0; }
 .choice-row .choice input { margin: 0; }
+.choice-row .choice-text { min-width: 0; }
+.choice-row .choice-label { white-space: nowrap; font-size: 14px; }
+@media (max-width: 400px) {
+  .choice-row .choice { gap: 6px; padding: 10px 6px; }
+  .choice-row .choice input { width: 14px; height: 14px; }
+  .choice-row .choice-label { font-size: 13px; }
+}
 .choices-note { margin: 4px 0 0; font-size: 12px; color: var(--text-2); }
 .chat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .optional { font-weight: 400; color: var(--text-2); }
