@@ -86,14 +86,17 @@ async function showReminder() {
   if (c.dueToday) parts.push(`${c.dueToday} due today`);
   if (c.high) parts.push(`${c.high} high priority`);
   const summary = parts.length ? parts.join(' · ') : `${c.open} open task${c.open === 1 ? '' : 's'}`;
-  await chrome.notifications.create(`${NOTE_PREFIX}-${Date.now()}`, {
+  // A standard notification (no requireInteraction): on macOS, notifications that stay on
+  // screen go through a separate "Alerts" helper that is often switched off.
+  const id = `${NOTE_PREFIX}-${Date.now()}`;
+  await chrome.notifications.create(id, {
     type: 'basic',
     iconUrl: 'icons/checkrow-128.png',
     title: 'Time for your CheckRow brief',
     message: `${summary}. Click to send your brief to Claude, ChatGPT, Teams and more.`,
     priority: 2,
-    requireInteraction: true,
   });
+  return id;
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -118,6 +121,16 @@ chrome.notifications.onClicked.addListener((id) => {
   chrome.tabs.create({ url: chrome.runtime.getURL('index.html#brief') });
 });
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg && msg.type === 'checkrow-test-reminder') showReminder();
+// "Send a test" in Settings. Replies so the page can say what actually happened.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || msg.type !== 'checkrow-test-reminder') return undefined;
+  (async () => {
+    const level = await new Promise((r) => chrome.notifications.getPermissionLevel(r));
+    if (level === 'denied') return { ok: false, error: 'denied' };
+    const id = await showReminder();
+    return { ok: true, id };
+  })()
+    .then(sendResponse)
+    .catch((err) => sendResponse({ ok: false, error: String((err && err.message) || err) }));
+  return true; // keep the channel open for the async reply
 });

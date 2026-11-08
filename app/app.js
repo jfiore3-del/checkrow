@@ -849,6 +849,32 @@
     try { await syncArea.set(items); } catch (e) { toast('Couldn’t save the reminder.'); }
   }
 
+  // What to tell the person after "Send a test", including where their computer's
+  // notification switch lives (the most common reason a notification doesn't appear).
+  function testResultHTML(res) {
+    const ua = navigator.userAgent;
+    const browser = /Edg\//.test(ua) ? 'Microsoft Edge' : 'Google Chrome';
+    const extPage = /Edg\//.test(ua) ? 'edge://extensions' : 'chrome://extensions';
+    // userAgentData says "macOS" / "Windows"; older fields say "MacIntel" / "Win32".
+    const plat = `${(navigator.userAgentData && navigator.userAgentData.platform) || ''} ${navigator.platform || ''} ${ua}`;
+    const mac = /mac/i.test(plat) && !/win/i.test((navigator.userAgentData && navigator.userAgentData.platform) || '');
+    const win = !mac && /win/i.test(plat);
+    if (!res) {
+      return `<strong>CheckRow’s background didn’t respond.</strong> Open <code>${extPage}</code>, click the reload button on CheckRow, then try again.`;
+    }
+    if (!res.ok) {
+      return res.error === 'denied'
+        ? `<strong>Notifications are turned off for CheckRow in ${browser}.</strong> Turn them back on in ${browser}’s settings, then try again.`
+        : `<strong>The notification couldn’t be shown.</strong> ${esc(res.error)}`;
+    }
+    const steps = mac
+      ? `Open <strong>System Settings › Notifications</strong>, choose <strong>${browser}</strong> and turn on <strong>Allow notifications</strong>. Also make sure <strong>Focus</strong> or Do Not Disturb is off.`
+      : win
+        ? `Open <strong>Settings › System › Notifications</strong>, turn notifications on for <strong>${browser}</strong>, and turn off <strong>Do not disturb</strong>.`
+        : `Check that your computer allows notifications from ${browser} and that Do Not Disturb is off.`;
+    return `<strong>Test notification sent.</strong> Didn’t see it? Your computer may be blocking notifications from ${browser}. ${steps}`;
+  }
+
   async function openSettings() {
     const radio = (name, value, label, help, checked) =>
       `<label class="choice"><input type="radio" name="${name}" value="${value}"${checked ? ' checked' : ''}>` +
@@ -872,6 +898,7 @@
           `<div class="row rem-time-row"><label for="remTime" class="field-label">Time</label>` +
           `<input id="remTime" class="input rem-time" type="time" value="${esc(rem.time)}" required>` +
           `<button type="button" class="text-btn" data-action="test-reminder">Send a test</button></div>` +
+          `<div class="test-result" id="testResult" role="status" hidden></div>` +
           `<p class="choices-note">Your browser needs to be open. If it isn’t at that time, the reminder shows up when you next open it that day.</p>` +
           `</div></fieldset>`
         : '') +
@@ -909,10 +936,17 @@
         if (id === 'remOn' && r.on && !r.days.length) toast('Pick at least one day for the reminder.');
       }
     });
-    form.addEventListener('click', (e) => {
-      if (!e.target.closest('[data-action="test-reminder"]')) return;
-      chrome.runtime.sendMessage({ type: 'checkrow-test-reminder' }).catch(() => {});
-      toast('Test reminder sent. Check your notifications.');
+    form.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-action="test-reminder"]');
+      if (!btn) return;
+      const out = $('#testResult', form);
+      btn.disabled = true;
+      let res = null;
+      try { res = await chrome.runtime.sendMessage({ type: 'checkrow-test-reminder' }); } catch (err) { res = null; }
+      btn.disabled = false;
+      out.innerHTML = testResultHTML(res);
+      out.className = `test-result${res && res.ok ? '' : ' warn'}`;
+      out.hidden = false;
     });
     modal.addEventListener('close', () => modal.classList.remove('wide'), { once: true });
     modal.showModal();

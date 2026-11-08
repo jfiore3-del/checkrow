@@ -566,6 +566,15 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; }
 .day input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 .rem-time-row { gap: 10px; }
 .rem-time { flex: 0 0 auto !important; width: 140px; padding: 8px 10px; }
+.test-result {
+  padding: 10px 12px; border-radius: 8px;
+  background: var(--accent-weak); color: var(--text);
+  font-size: 12.5px; line-height: 1.5;
+}
+.test-result strong { font-weight: 600; }
+.test-result.warn { background: var(--danger-weak); }
+.test-result code { font-size: 12px; padding: 1px 4px; border-radius: 4px; background: var(--surface); }
+.text-btn:disabled { opacity: .5; cursor: default; }
 @media (max-width: 560px) {
   .rem-detail { padding-left: 0; }
   .chat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
