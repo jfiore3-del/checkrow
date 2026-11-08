@@ -1,6 +1,6 @@
 # CheckRow
 
-A clean, Google Workspace–style to-do list that lives in the Chrome or Edge side panel. It's a browser extension built with plain HTML, CSS and JavaScript, with no build step, no dependencies and no server.
+A clean, Google Workspace–style to-do list that lives in the Chrome side panel. It's a browser extension built with plain HTML, CSS and JavaScript, with no build step, no dependencies and no server.
 
 ## Features
 
@@ -17,7 +17,7 @@ A clean, Google Workspace–style to-do list that lives in the Chrome or Edge si
 - **Search** across titles and notes.
 - **Undo** for completing, deleting and clearing tasks.
 - **Light and dark themes**, following the system by default.
-- **Sync across computers** through your Chrome or Edge account, with no server.
+- **Sync across computers** through your Chrome account, with no server.
 - **Backups**: export everything to a JSON file and import it back.
 - **Side panel or full tab**: single column in the side panel; the ↗ button opens a full three-pane view in a tab.
 
@@ -27,7 +27,7 @@ There's no CheckRow server. Every change is saved on your computer right away, t
 
 Tasks only leave your browser when you use **AI Brief**, and only to the assistant or chat app you pick.
 
-Chrome and Edge each sync within their own accounts; they don't sync with each other. If browser sync is off, tasks stay on that computer; Export backup / Import backup moves them by hand.
+If Chrome sync is off, tasks stay on that computer; Export backup / Import backup moves them by hand.
 
 The bottom of the sidebar shows the current status, e.g. "Synced with your browser account".
 
@@ -37,18 +37,17 @@ If you were already using CheckRow on a computer before sync, your existing task
 
 ## Install it (for testing)
 
-1. Go to `chrome://extensions` (or `edge://extensions`).
+1. Go to `chrome://extensions`.
 2. Turn on **Developer mode**.
 3. Click **Load unpacked** and choose the `app` folder.
 4. Click the CheckRow icon in the toolbar to open it in the side panel. In the side panel, the ↗ button opens CheckRow in a full tab.
 
-The side panel and a full tab share the same data and stay in sync. To sync between computers, install the extension on each one while signed in to the same Chrome (or Edge) account with sync turned on.
+The side panel and a full tab share the same data and stay in sync. To sync between computers, install the extension on each one while signed in to the same Chrome account with sync turned on.
 
 ## Publishing
 
 Zip the **contents** of the `app` folder (with `manifest.json` at the top level of the zip) and upload it to the
-[Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole) and the
-[Microsoft Edge Add-ons Partner Center](https://partner.microsoft.com/dashboard/microsoftedge/overview).
+[Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole).
 
 ```sh
 cd app && zip -r ../checkrow-extension.zip . -x '.*'
@@ -64,7 +63,7 @@ app/
   manifest.json   extension manifest (Manifest V3, side panel)
   background.js   opens the side panel; schedules the daily reminder
   icons/          app icons (16, 32, 48, 128 px + SVG)
-store-assets/     store screenshots, promo tiles, icon and Edge logo (see its README)
+store-assets/     Chrome Web Store screenshots, promo tiles and icon (see its README)
 brand/
   checkrow-icon.svg, checkrow-icon-dark.svg, checkrow-favicon.svg
   png/            icon exports

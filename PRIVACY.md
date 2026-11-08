@@ -2,12 +2,12 @@
 
 Effective November 6, 2026
 
-CheckRow is a to-do list extension for Google Chrome and Microsoft Edge. It has no servers: the developer never receives, sees, sells or shares your information. This policy explains what CheckRow stores and the only times it sends anything anywhere.
+CheckRow is a to-do list extension for Google Chrome. It has no servers: the developer never receives, sees, sells or shares your information. This policy explains what CheckRow stores and the only times it sends anything anywhere.
 
 ## What CheckRow stores
 
 - Your lists and tasks (titles, notes, due dates, priorities, stars and completion) and your settings (default sort order, theme, and daily reminder days and time).
-- These are kept with the browser's extension storage. If you're signed in to your browser with sync turned on, the browser syncs them across your computers through your browser account, under Google's or Microsoft's privacy policy. If sync is off, they stay on that computer.
+- These are kept with the browser's extension storage. If you're signed in to your browser with sync turned on, the browser syncs them across your computers through your browser account, under Google's privacy policy. If sync is off, they stay on that computer.
 - If you enter a work email in Settings, it is stored only on that computer and is not synced.
 
 ## What CheckRow sends, and when
