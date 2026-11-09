@@ -569,28 +569,75 @@
     sizeTitles();
   }
 
-  // Task names wrap. Long ones show two lines (fading out) until you click in to edit,
-  // then the box grows to show the whole name.
+  // Task names wrap. Long ones show two lines (fading out); hovering the task or clicking
+  // in to edit grows the box to show the whole name.
   const TITLE_LINES = 2;
   function sizeTitle(el) {
+    const from = el.style.height;
     el.style.height = 'auto';
     const cs = getComputedStyle(el);
     const line = parseFloat(cs.lineHeight) || 20;
     const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
     const full = el.scrollHeight;
     const max = line * TITLE_LINES + pad;
-    const clamp = document.activeElement !== el && full > max + 1;
+    const expanded = document.activeElement === el || el.closest('.task')?.classList.contains('expanded');
+    const clamp = !expanded && full > max + 1;
     el.classList.toggle('clamped', clamp);
-    el.style.height = `${clamp ? max : full}px`;
+    const to = `${clamp ? max : full}px`;
+    if (from && from !== to) { el.style.height = from; void el.offsetHeight; } // animate from where it was
+    el.style.height = to;
   }
-  function sizeTitles() { main.querySelectorAll('.task-title').forEach(sizeTitle); }
+  function sizeTitles() {
+    main.querySelectorAll('.task-title').forEach(sizeTitle);
+    // After a re-draw, the row under the mouse stays expanded.
+    main.querySelectorAll('.task:hover, .task.drawer-open').forEach((r) => setExpanded(r, true));
+  }
   let titleWidth = 0;
   new ResizeObserver(() => {
     if (main.clientWidth !== titleWidth) { titleWidth = main.clientWidth; sizeTitles(); }
   }).observe(main);
   main.addEventListener('focusin', (e) => { if (e.target.matches('.task-title')) sizeTitle(e.target); });
+  // Expand on hover, after a short pause so sweeping the mouse across the list
+  // doesn't make rows jump. Only rows with a cut-off name change.
+  let hoverTimer = 0;
+  function setExpanded(row, on) {
+    const ta = row && row.querySelector('.task-title');
+    if (!ta || row.classList.contains('expanded') === on) return;
+    if (on && !ta.classList.contains('clamped')) return;
+    row.classList.toggle('expanded', on);
+    sizeTitle(ta);
+  }
+  main.addEventListener('mouseover', (e) => {
+    const row = e.target.closest('.task');
+    if (!row || row.contains(e.relatedTarget)) return;
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => { if (row.matches(':hover')) setExpanded(row, true); }, 180);
+  });
+  main.addEventListener('mouseout', (e) => {
+    const row = e.target.closest('.task');
+    if (!row || row.contains(e.relatedTarget)) return;
+    clearTimeout(hoverTimer);
+    if (!row.classList.contains('drawer-open')) setExpanded(row, false); // stays open while its drawer is
+  });
+  // When a drawer closes, its row shrinks back unless the mouse is still on it.
+  new MutationObserver((muts) => {
+    for (const m of muts) {
+      const r = m.target;
+      if (r.classList?.contains('task') && !r.classList.contains('drawer-open') && !r.matches(':hover') &&
+          document.activeElement?.closest('.task') !== r) setExpanded(r, false);
+    }
+  }).observe(main, { subtree: true, attributes: true, attributeFilter: ['class'] });
+  main.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-action="row-more"]');
+    if (b) setExpanded(b.closest('.task'), true);
+  });
   main.addEventListener('focusout', (e) => {
-    if (e.target.matches('.task-title')) { e.target.scrollTop = 0; sizeTitle(e.target); }
+    if (e.target.matches('.task-title')) {
+      e.target.scrollTop = 0;
+      const row = e.target.closest('.task');
+      if (row && !row.matches(':hover')) row.classList.remove('expanded');
+      sizeTitle(e.target);
+    }
   });
   main.addEventListener('input', (e) => {
     if (!e.target.matches('.task-title')) return;

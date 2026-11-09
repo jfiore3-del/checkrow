@@ -324,7 +324,9 @@ body.sidebar-collapsed .sidebar { display: none; }
   border: 0; outline: 0; background: transparent;
   font: inherit; font-size: 15px; line-height: 20px; color: var(--text);
   resize: none; overflow: hidden; overflow-wrap: anywhere; white-space: pre-wrap;
+  transition: height .15s ease-out;
 }
+@media (prefers-reduced-motion: reduce) { .task-title { transition: none; } }
 /* Long names: show two lines, fading out the end of the second, until you click in. */
 .task-title.clamped {
   -webkit-mask-image: linear-gradient(to bottom, #000 50%, transparent 50%), linear-gradient(to right, #000 calc(100% - 64px), transparent);
