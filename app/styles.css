@@ -307,7 +307,15 @@ body.sidebar-collapsed .sidebar { display: none; }
   color: transparent; transition: background .12s, border-color .12s, color .12s;
 }
 .check-circle .ico { width: 14px; height: 14px; stroke-width: 3; }
-.check:hover .check-circle { border-color: var(--accent); color: var(--accent); }
+.check:hover .check-circle { border-color: var(--accent); color: var(--accent); background: var(--accent-weak); }
+.check:focus-visible { outline: none; }
+.check:focus-visible .check-circle { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* Completing: the circle fills with a little pop, then the row slides away into Completed. */
+.task.completing .check-circle { animation: check-pop .25s ease-out; }
+.task.completing { animation: row-complete .45s ease-in forwards; pointer-events: none; }
+@keyframes check-pop { 0% { transform: scale(.8); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
+@keyframes row-complete { 0%, 55% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateX(8px); } }
 .task.is-done .check-circle { background: var(--done); border-color: var(--done); color: var(--bg); }
 
 .task-body { flex: 1; min-width: 0; padding: 9px 0 8px; }
@@ -351,6 +359,12 @@ body.sidebar-collapsed .sidebar { display: none; }
 .row-actions .icon-btn.pri-1 { color: var(--pri-1); }
 .row-actions .icon-btn.pri-2 { color: var(--pri-2); }
 .row-actions .icon-btn.pri-3 { color: var(--pri-3); }
+.row-actions .icon-btn.del:hover { color: var(--danger); background: var(--danger-weak); }
+@media (max-width: 560px) {
+  .row-actions { top: 8px; padding-left: 22px; background: linear-gradient(to right, transparent, var(--row-bg) 22px); }
+  .row-actions .icon-btn { width: 34px; height: 34px; }
+  .row-actions .icon-btn .ico { width: 18px; height: 18px; }
+}
 .star-badge { width: 40px; height: 44px; flex: none; display: grid; place-items: center; color: var(--star); }
 .star-badge .ico { width: 18px; height: 18px; fill: currentColor; }
 .star.on { color: var(--star); }

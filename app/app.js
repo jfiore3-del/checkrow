@@ -488,7 +488,8 @@
     const label = esc(t.title || 'Untitled task');
     return `<li class="task${t.done ? ' is-done' : ''}${ui.openTaskId === t.id ? ' is-open' : ''}" data-id="${esc(t.id)}">` +
       (canDrag ? `<button type="button" class="grip" tabindex="-1" aria-hidden="true">${icon('grip')}</button>` : '') +
-      `<button type="button" class="check" data-action="toggle" role="checkbox" aria-checked="${t.done}" aria-label="Done: ${label}">` +
+      `<button type="button" class="check" data-action="toggle" role="checkbox" aria-checked="${t.done}" ` +
+      `aria-label="${t.done ? 'Mark not complete' : 'Mark complete'}: ${label}" title="${t.done ? 'Mark not complete' : 'Mark complete'}">` +
       `<span class="check-circle">${icon('check')}</span></button>` +
       `<div class="task-body">` +
       `<input class="task-title" value="${esc(t.title)}" placeholder="Title" aria-label="Task title"${t.done ? ' readonly' : ''}>` +
@@ -497,10 +498,11 @@
       (t.starred ? `<span class="star-badge" aria-hidden="true">${icon('star')}</span>` : '') +
       `<div class="row-actions">` +
       (t.done ? '' :
-        `<button type="button" class="icon-btn${t.due ? ' set' : ''}" data-action="pick-due" aria-label="${t.due ? 'Change' : 'Add'} due date: ${label}">${icon('calendar')}</button>` +
-        `<button type="button" class="icon-btn pri-${t.priority}" data-action="pick-pri" aria-label="${t.priority ? 'Change' : 'Set'} priority: ${label}">${icon('flag')}</button>`) +
-      `<button type="button" class="icon-btn star${t.starred ? ' on' : ''}" data-action="star" aria-pressed="${t.starred}" aria-label="Star: ${label}">${icon('star')}</button>` +
-      `<button type="button" class="icon-btn" data-action="open" aria-label="Details: ${label}">${icon('details')}</button>` +
+        `<button type="button" class="icon-btn${t.due ? ' set' : ''}" data-action="pick-due" title="${t.due ? 'Change due date' : 'Add due date'}" aria-label="${t.due ? 'Change' : 'Add'} due date: ${label}">${icon('calendar')}</button>` +
+        `<button type="button" class="icon-btn pri-${t.priority}" data-action="pick-pri" title="${t.priority ? 'Change priority' : 'Set priority'}" aria-label="${t.priority ? 'Change' : 'Set'} priority: ${label}">${icon('flag')}</button>`) +
+      `<button type="button" class="icon-btn star${t.starred ? ' on' : ''}" data-action="star" aria-pressed="${t.starred}" title="${t.starred ? 'Unstar' : 'Star'}" aria-label="Star: ${label}">${icon('star')}</button>` +
+      `<button type="button" class="icon-btn" data-action="open" title="Details" aria-label="Details: ${label}">${icon('details')}</button>` +
+      `<button type="button" class="icon-btn del" data-action="delete" title="Delete task" aria-label="Delete: ${label}">${icon('trash')}</button>` +
       `</div></li>`;
   }
 
@@ -592,7 +594,7 @@
       `</select>${icon('chevron', 'select-chev')}</span></div>` +
       `<p class="created">Created ${esc(created)}</p>` +
       `<div class="details-foot">` +
-      `<button type="button" class="btn" data-action="details-done">${icon('check')}${t.done ? 'Mark not done' : 'Mark done'}</button>` +
+      `<button type="button" class="btn" data-action="details-done">${icon('check')}${t.done ? 'Mark not complete' : 'Mark complete'}</button>` +
       `<button type="button" class="btn danger" data-action="delete-task">${icon('trash')}Delete</button>` +
       `</div>`;
     if (keep) details.querySelector(keep)?.focus();
@@ -1065,10 +1067,39 @@
     render();
   }
 
-  function toggleTask(t) {
-    setDone(t, !t.done);
-    render();
-    if (t.done) toast('Task completed', () => { setDone(t, false); render(); });
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  // Where focus should go after a row leaves the list: the row now in its place,
+  // else the one above, else the add box.
+  function focusRowNear(listSel, index, part) {
+    const rows = main.querySelectorAll(`${listSel} .task`);
+    const row = rows[Math.min(index, rows.length - 1)];
+    (row ? row.querySelector(part) : $('#addInput'))?.focus();
+  }
+  function rowIndex(li) {
+    return li ? [...li.parentElement.children].indexOf(li) : -1;
+  }
+
+  // Completing saves at once; the row shows the check and fades for a moment before
+  // moving to Completed, so it's clear what happened (skipped with reduced motion).
+  function toggleTask(t, li) {
+    const completing = !t.done;
+    const fromActive = li && li.closest('#activeList');
+    const index = rowIndex(li);
+    const hadFocus = li && li.contains(document.activeElement);
+    setDone(t, completing);
+    const finish = () => {
+      render();
+      if (hadFocus && fromActive) focusRowNear('#activeList', index, '.check');
+    };
+    if (completing && fromActive && !reducedMotion.matches) {
+      li.classList.add('is-done', 'completing');
+      li.querySelector('.check')?.setAttribute('aria-checked', 'true');
+      setTimeout(finish, 450);
+    } else {
+      finish();
+    }
+    if (completing) toast('Task completed', () => { setDone(t, false); render(); });
+    else toast('Task moved back to your list');
   }
 
   function openDetails(id) {
@@ -1083,9 +1114,13 @@
     if (id) main.querySelector(`.task[data-id="${CSS.escape(id)}"] [data-action="open"].icon-btn`)?.focus();
   }
 
-  function deleteTaskWithUndo(t) {
+  function deleteTaskWithUndo(t, li) {
+    const listSel = li && li.closest('#activeList') ? '#activeList' : '.done .tasks';
+    const index = rowIndex(li);
+    const hadFocus = li && li.contains(document.activeElement);
     const undo = removeTask(t);
     render();
+    if (hadFocus) focusRowNear(listSel, index, '[data-action="delete"]');
     toast('Task deleted', undo);
   }
 
@@ -1261,7 +1296,8 @@
     const li = b.closest('.task');
     const t = li ? taskById(li.dataset.id) : null;
     switch (b.dataset.action) {
-      case 'toggle': if (t) toggleTask(t); break;
+      case 'toggle': if (t) toggleTask(t, li); break;
+      case 'delete': if (t) deleteTaskWithUndo(t, li); break;
       case 'star': if (t) { t.starred = !t.starred; save(); render(); } break;
       case 'open': if (t) openDetails(t.id); break;
       case 'toggle-done':
@@ -1331,6 +1367,14 @@
     if (e.target.matches('.task-title') && e.key === 'Enter') {
       e.preventDefault();
       e.target.blur();
+      return;
+    }
+    // Delete key on a selected row (its circle or one of its buttons) deletes the task.
+    // Not while typing in the title, where Delete edits text.
+    if (e.key === 'Delete' && !e.target.matches('input, textarea')) {
+      const li = e.target.closest('.task');
+      const t = li && taskById(li.dataset.id);
+      if (t) { e.preventDefault(); deleteTaskWithUndo(t, li); }
     }
   });
 
