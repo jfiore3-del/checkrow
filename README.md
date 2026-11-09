@@ -6,19 +6,22 @@ A clean, Google Workspace–style to-do list that lives in the Chrome side panel
 
 - **Lists**: create, rename and delete lists. The list menu also clears completed tasks.
 - **Smart views**: All tasks, Today (due today or overdue) and Starred.
-- **Tasks**: add with Enter, edit titles inline, check off, and star.
-- **Inline due dates and priorities**: set them while adding a task, and change them right on the row (click the chip, or the calendar and flag icons that appear on hover).
+- **Tasks**: add with Enter, edit titles inline, check off, star and delete. Long names wrap to two lines and expand on hover. The ⋮ on each row slides out the task's options.
+- **Inline due dates and priorities**: set them while adding a task, and change them right on the row (click the chip, or the calendar and flag in the ⋮ options).
+- **Repeating tasks**: daily, every weekday, weekly, monthly or yearly, from the date menu or the details panel. Completing one creates the next.
 - **Details panel**: notes, due date, priority (Low / Medium / High) and moving a task to another list.
 - **Sorting**: Priority (the default), Date, or My order (drag to reorder). Change the default for every list in **Settings**, or sort one list differently from the menu at the top of that list.
 - **AI Brief**: one click sends your open tasks (overdue, due today, coming up, by priority) to Claude, ChatGPT, Gemini or Grok for a morning brief. The brief is copied to your clipboard and the assistant opens in a new tab, pre-filled where the site supports it. You can edit the brief first or limit it to one list.
 - **Send to chat**: from AI Brief, send your task list to Teams, Slack or Google Chat. It's copied for a quick paste, Add your work email in Settings and Teams opens a chat with yourself with the list already typed, while Google Chat and Gemini open in your work Google account rather than a personal one.
 - **Daily reminder**: pick your work days and a time. A notification pops up with a quick summary (overdue, due today, high priority); click it to open AI Brief. If your browser is closed at that time, it reminds you when you next open it that day. Only one of your computers shows it.
-- **Settings**: daily reminder, default sort order, work email and theme. The default sort syncs to your other computers.
+- **Toolbar count**: the CheckRow icon shows how many tasks are overdue or due today (red when something is overdue). Can be turned off in Settings.
+- **Settings**: daily reminder, toolbar count, backups and archive, default sort order, work email and theme. The default sort syncs to your other computers.
 - **Search** across titles and notes.
 - **Undo** for completing, deleting and clearing tasks.
 - **Light and dark themes**, following the system by default.
 - **Sync across computers** through your Chrome account, with no server.
-- **Backups**: export everything to a JSON file and import it back.
+- **Daily backups**: a copy of your tasks is saved on your computer every day (last 7 kept) and can be restored from Settings. You can also export everything to a JSON file and import it back.
+- **Archive**: completed tasks move to an archive on your computer 30 days after you finish them, so sync never fills up. View, restore or delete them in Settings.
 - **Side panel or full tab**: single column in the side panel; the ↗ button opens a full three-pane view in a tab.
 
 ## Where your tasks are saved
@@ -31,7 +34,7 @@ If Chrome sync is off, tasks stay on that computer; Export backup / Import backu
 
 The bottom of the sidebar shows the current status, e.g. "Synced with your browser account".
 
-**Sync limits (set by the browser):** about 100 KB in total and 511 tasks, counting completed ones. That's plenty for everyday use. The status line warns you when you pass 60%, and *Delete all completed tasks* in a list's ⋮ menu frees space. Task details are capped at 2,000 characters so each task fits in a sync item.
+**Sync limits (set by the browser):** about 100 KB in total and 511 tasks, counting completed ones. That's plenty for everyday use. The status line warns you when you pass 60%. Completed tasks move to an archive on your computer after 30 days, and *Archive all completed* in Settings frees space right away. Task details are capped at 2,000 characters so each task fits in a sync item.
 
 If you were already using CheckRow on a computer before sync, your existing tasks are merged in the first time you open the new version, and lists with the same name are combined.
 

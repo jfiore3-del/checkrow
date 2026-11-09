@@ -54,6 +54,9 @@
     cloud: '<path d="M7 18.5h10.5a4 4 0 0 0 .7-7.94A6 6 0 0 0 6.6 9.1 4.7 4.7 0 0 0 7 18.5z"/>',
     device: '<rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2.5 19h19"/>',
     warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
+    repeat: '<path d="M16.5 3l3 3-3 3"/><path d="M4.5 11.5V10a4 4 0 0 1 4-4h11"/><path d="M7.5 21l-3-3 3-3"/><path d="M19.5 12.5V14a4 4 0 0 1-4 4h-11"/>',
+    archive: '<rect x="3.5" y="4.5" width="17" height="4.5" rx="1"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
+    history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3.5 4v4h4M12 7.5V12l3 2"/>',
     party: '<path d="M4 20l4.5-12 7.5 7.5z"/><path d="M14 4.5c0 1.5 1 2 2 2M19.5 9.5c-1.5 0-2 1-2 2M15 9l4-4M10.5 3.5l.5 1.5M20.5 13.5l-1.5-.5"/>',
   };
   const icon = (name, cls = '') => (
@@ -83,6 +86,47 @@
     return t.due < k ? 'overdue' : t.due === k ? 'due-today' : '';
   }
 
+  // ---------- Repeating tasks ----------
+  // A repeating task has a due date. Completing it creates the next one, due on the
+  // next matching day after today (or after its due date, if that's still ahead).
+  const REPEATS = ['daily', 'weekdays', 'weekly', 'monthly', 'yearly'];
+  const ordinal = (n) => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
+  function repeatLabel(rule, due) {
+    const d = parseKey(due || todayKey());
+    switch (rule) {
+      case 'daily': return 'Daily';
+      case 'weekdays': return 'Every weekday';
+      case 'weekly': return `Weekly on ${d.toLocaleDateString(undefined, { weekday: 'long' })}`;
+      case 'monthly': return `Monthly on the ${ordinal(d.getDate())}`;
+      case 'yearly': return `Yearly on ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+      default: return 'Doesn’t repeat';
+    }
+  }
+  const daysIn = (y, m) => new Date(y, m + 1, 0).getDate();
+  function stepDate(d, rule, anchorDay) {
+    const n = new Date(d);
+    if (rule === 'daily') n.setDate(n.getDate() + 1);
+    else if (rule === 'weekdays') { do n.setDate(n.getDate() + 1); while (n.getDay() === 0 || n.getDay() === 6); }
+    else if (rule === 'weekly') n.setDate(n.getDate() + 7);
+    else if (rule === 'monthly') {
+      const y = n.getFullYear() + (n.getMonth() === 11 ? 1 : 0);
+      const m = (n.getMonth() + 1) % 12;
+      return new Date(y, m, Math.min(anchorDay, daysIn(y, m)));
+    } else if (rule === 'yearly') {
+      const y = n.getFullYear() + 1;
+      return new Date(y, n.getMonth(), Math.min(anchorDay, daysIn(y, n.getMonth())));
+    }
+    return n;
+  }
+  function nextDue(rule, due) {
+    const base = due || todayKey();
+    const anchor = parseKey(base).getDate();
+    const today = todayKey();
+    let d = stepDate(parseKey(base), rule, anchor);
+    if (base <= today) while (toKey(d) <= today) d = stepDate(d, rule, anchor);
+    return toKey(d);
+  }
+
   // ---------- State ----------
   function freshState() {
     const id = uid();
@@ -105,6 +149,7 @@
         due: /^\d{4}-\d{2}-\d{2}$/.test(t.due) ? t.due : '',
         priority: [0, 1, 2, 3].includes(t.priority) ? t.priority : 0,
         starred: !!t.starred,
+        repeat: REPEATS.includes(t.repeat) && /^\d{4}-\d{2}-\d{2}$/.test(t.due) ? t.repeat : '',
         done: !!t.done,
         completedAt: Number(t.completedAt) || 0,
         createdAt: Number(t.createdAt) || Date.now(),
@@ -170,11 +215,13 @@
     l: t.listId, t: t.title,
     n: t.notes || undefined, d: t.due || undefined, p: t.priority || undefined,
     s: t.starred ? 1 : undefined, x: t.done ? 1 : undefined, c: t.completedAt || undefined,
+    r: t.repeat || undefined,
     a: t.createdAt, o: t.order,
   });
   const unpackTask = (id, v) => ({
     id, listId: v.l, title: v.t || '', notes: v.n || '', due: v.d || '',
     priority: v.p || 0, starred: !!v.s, done: !!v.x, completedAt: v.c || 0,
+    repeat: REPEATS.includes(v.r) && v.d ? v.r : '',
     createdAt: v.a || Date.now(), order: v.o || 0,
   });
   // Stable text form of a synced value. Chrome hands values back with their fields in
@@ -251,7 +298,12 @@
       const msg = String((e && e.message) || e);
       if (/PER_ITEM/.test(msg)) setSyncStatus('too-big');
       else if (/QUOTA_BYTES|MAX_ITEMS/.test(msg)) {
-        if (Sync.status !== 'full') toast('Sync storage is full. Delete completed tasks to free up space.');
+        if (Sync.status !== 'full') {
+          toast('Sync storage is full.', async () => {
+            const n = await archiveCompleted(true);
+            toast(n ? `Archived ${n} completed task${n === 1 ? '' : 's'}` : 'No completed tasks to archive');
+          }, 'Archive completed');
+        }
         setSyncStatus('full');
       } else if (/MAX_WRITE_OPERATIONS/.test(msg)) { setSyncStatus('waiting'); Sync.retry = setTimeout(flushSync, 60000); }
       else { setSyncStatus('error'); Sync.retry = setTimeout(flushSync, 30000); }
@@ -287,7 +339,14 @@
       } else {
         const id = k.slice(2);
         const i = state.tasks.findIndex((t) => t.id === id);
-        if (change.newValue === undefined) { if (i >= 0) { state.tasks.splice(i, 1); touched = true; } }
+        if (change.newValue === undefined) {
+          if (i >= 0) {
+            const gone = state.tasks.splice(i, 1)[0];
+            // Another computer archived it: keep a copy in this computer's archive too.
+            if (gone.done && gone.completedAt && gone.completedAt < archiveCutoff()) putInArchive([gone]);
+            touched = true;
+          }
+        }
         else { const t = unpackTask(id, change.newValue); if (i >= 0) state.tasks[i] = t; else state.tasks.push(t); touched = true; }
       }
     }
@@ -305,7 +364,7 @@
     saving: ['cloud', 'Saving…'],
     waiting: ['cloud', 'Syncing shortly…'],
     error: ['warn', 'Can’t sync right now. Saved on this device.'],
-    full: ['warn', 'Sync storage full. Delete completed tasks to free space.'],
+    full: ['warn', 'Sync storage full. Archive completed tasks in Settings.'],
     'too-big': ['warn', 'A task’s details are too long to sync. Shorten them.'],
   };
   function syncStatusHTML() {
@@ -352,6 +411,40 @@
     save();
     await flushSync();
     chrome.storage.onChanged.addListener(onSyncChanged);
+  }
+
+  // ---------- Archive (this computer only) ----------
+  // Completed tasks move out of sync 30 days after they're finished, into
+  // chrome.storage.local on this computer. Sync has a small size limit; this keeps it
+  // from filling up. Nothing leaves the computer.
+  const localArea = (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) ? chrome.storage.local : null;
+  const ARCHIVE_DAYS = 30;
+  const archiveCutoff = () => Date.now() - ARCHIVE_DAYS * 86400000;
+  async function getArchive() {
+    if (!localArea) return [];
+    try { const { archive } = await localArea.get('archive'); return Array.isArray(archive) ? archive : []; } catch (e) { return []; }
+  }
+  async function putInArchive(tasks) {
+    if (!localArea || !tasks.length) return false;
+    const archive = await getArchive();
+    const have = new Set(archive.map((a) => a.id));
+    for (const t of tasks) if (!have.has(t.id)) archive.push({ id: t.id, ...packTask(t) });
+    try { await localArea.set({ archive }); return true; } catch (e) { return false; }
+  }
+  async function setArchive(archive) {
+    if (!localArea) return;
+    try { await localArea.set({ archive }); } catch (e) { /* ignore */ }
+  }
+  // Moves completed tasks to the archive: those finished 30+ days ago, or all of them.
+  async function archiveCompleted(all = false) {
+    const cutoff = archiveCutoff();
+    const old = state.tasks.filter((t) => t.done && (all || (t.completedAt && t.completedAt < cutoff)));
+    if (!old.length || !(await putInArchive(old))) return 0;
+    const ids = new Set(old.map((t) => t.id));
+    state.tasks = state.tasks.filter((t) => !ids.has(t.id));
+    save();
+    render();
+    return old.length;
   }
 
   // ---------- Queries ----------
@@ -406,6 +499,7 @@
       due: due || (state.view === 'today' ? todayKey() : ''),
       priority,
       starred: state.view === 'starred',
+      repeat: '',
       done: false, completedAt: 0, createdAt: Date.now(),
       order: topOrder(listId),
     };
@@ -413,9 +507,23 @@
     save();
     return t;
   }
+  // Completing a repeating task creates the next one (remembered so Undo can take it back).
+  const spawned = new Map(); // completed task id -> { id, repeat }
   function setDone(t, done) {
     t.done = done;
     t.completedAt = done ? Date.now() : 0;
+    if (done && t.repeat) {
+      const next = { ...t, id: uid(), due: nextDue(t.repeat, t.due), done: false, completedAt: 0, createdAt: Date.now() };
+      state.tasks.push(next);
+      spawned.set(t.id, { id: next.id, repeat: t.repeat });
+      t.repeat = ''; // the finished copy doesn't repeat again
+    } else if (!done && spawned.has(t.id)) {
+      const s = spawned.get(t.id);
+      spawned.delete(t.id);
+      const n = taskById(s.id);
+      if (n && !n.done) state.tasks.splice(state.tasks.indexOf(n), 1);
+      t.repeat = s.repeat;
+    }
     save();
   }
   function removeTask(t) {
@@ -483,7 +591,7 @@
     if (t.due) {
       meta.push(t.done
         ? `<span class="chip">${icon('calendar')}${esc(fmtDue(t.due))}</span>`
-        : `<button type="button" class="chip chip-btn ${dueClass(t)}" data-action="pick-due" aria-label="Due ${esc(fmtDue(t.due))}. Change due date">${icon('calendar')}${esc(fmtDue(t.due))}</button>`);
+        : `<button type="button" class="chip chip-btn ${dueClass(t)}" data-action="pick-due"${t.repeat ? ` title="${esc(repeatLabel(t.repeat, t.due))}"` : ''} aria-label="Due ${esc(fmtDue(t.due))}${t.repeat ? `, repeats ${esc(repeatLabel(t.repeat, t.due).toLowerCase())}` : ''}. Change due date">${icon('calendar')}${esc(fmtDue(t.due))}${t.repeat ? icon('repeat', 'chip-repeat') : ''}</button>`);
     }
     if (t.priority) {
       meta.push(t.done
@@ -679,6 +787,9 @@
       `<input id="dDue" class="input" type="date" value="${esc(t.due)}">` +
       (t.due ? `<button type="button" class="text-btn" data-action="clear-due">Clear</button>` : '') +
       `</div></div>` +
+      (t.done ? '' : `<div class="field"><label for="dRepeat">Repeat</label><span class="select-wrap block"><select id="dRepeat" class="input select">` +
+        ['', ...REPEATS].map((r) => `<option value="${r}"${(t.repeat || '') === r ? ' selected' : ''}>${esc(repeatLabel(r, t.due))}</option>`).join('') +
+        `</select>${icon('chevron', 'select-chev')}</span></div>`) +
       `<fieldset class="field"><legend>Priority</legend><div class="seg">` +
       PRI.map((p, i) => `<label class="seg-opt pri-${i}"><input type="radio" name="dPri" value="${i}"${t.priority === i ? ' checked' : ''}>` +
         `<span>${i ? icon('flag') : ''}${p}</span></label>`).join('') +
@@ -716,9 +827,9 @@
   // ---------- Toast ----------
   let toastTimer = 0;
   function hideToast() { toastEl.hidden = true; clearTimeout(toastTimer); }
-  function toast(message, undo) {
+  function toast(message, undo, label = 'Undo') {
     clearTimeout(toastTimer);
-    toastEl.innerHTML = `<span>${esc(message)}</span>${undo ? '<button type="button" class="toast-btn">Undo</button>' : ''}`;
+    toastEl.innerHTML = `<span>${esc(message)}</span>${undo ? `<button type="button" class="toast-btn">${esc(label)}</button>` : ''}`;
     toastEl.hidden = false;
     if (undo) {
       toastEl.querySelector('.toast-btn').addEventListener('click', () => { hideToast(); undo(); });
@@ -945,6 +1056,87 @@
     try { await syncArea.set(items); } catch (e) { toast('Couldn’t save the reminder.'); }
   }
 
+  // Toolbar count setting (read by the background worker, follows the account).
+  async function getBadge() {
+    try { const { badge } = await syncArea.get('badge'); return { on: true, ...(badge || {}) }; } catch (e) { return { on: true }; }
+  }
+  // Daily backups are written by the background worker into chrome.storage.local.
+  async function getBackups() {
+    if (!localArea) return [];
+    try { const { backups } = await localArea.get('backups'); return Array.isArray(backups) ? backups : []; } catch (e) { return []; }
+  }
+  const backupTasks = (b) => Object.keys((b && b.items) || {}).filter((k) => k.startsWith('t:')).length;
+  const dayLabel = (k) => parseKey(k).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  async function restoreBackup(day) {
+    const b = (await getBackups()).find((x) => x.day === day);
+    const remote = b && fromSyncItems(b.items);
+    if (!remote) { toast('That backup couldn’t be read.'); return; }
+    const n = remote.tasks.length;
+    const ok = await ask({
+      title: 'Restore this backup?',
+      message: `Your tasks will be replaced with the ${n} task${n === 1 ? '' : 's'} saved on ${dayLabel(day)}. You can undo this right after.`,
+      confirm: 'Restore',
+      danger: true,
+    });
+    if (!ok) return;
+    const previous = state;
+    state = normalize({ ...state, lists: remote.lists, tasks: remote.tasks });
+    ui.openTaskId = null;
+    save();
+    render();
+    toast('Backup restored', () => { state = previous; save(); render(); });
+  }
+
+  // Archive view (inside the Settings window).
+  async function showArchive() {
+    const archive = (await getArchive()).slice().sort((a, b) => (b.c || 0) - (a.c || 0));
+    const when = (ms) => (ms ? new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+    modal.innerHTML =
+      `<form method="dialog" class="modal-form settings-form archive-view"><h2>Archive</h2>` +
+      `<p class="choices-note">Tasks you completed more than ${ARCHIVE_DAYS} days ago. They’re kept on this computer only and don’t use sync space.</p>` +
+      (archive.length
+        ? `<ul class="archive-list">${archive.map((a) => {
+          const l = listById(a.l);
+          return `<li data-id="${esc(a.id)}"><div class="archive-text"><span class="archive-title">${esc(a.t || 'Untitled task')}</span>` +
+            `<span class="archive-meta">Completed ${esc(when(a.c))}${l ? ` · ${esc(l.name)}` : ''}</span></div>` +
+            `<button type="button" class="text-btn" data-action="archive-restore">Restore</button>` +
+            `<button type="button" class="icon-btn del" data-action="archive-delete" title="Delete forever" aria-label="Delete forever: ${esc(a.t || 'Untitled task')}">${icon('trash')}</button></li>`;
+        }).join('')}</ul>`
+        : `<p class="empty-note">Nothing archived yet.</p>`) +
+      `<div class="modal-actions">` +
+      (archive.length ? `<button type="button" class="btn danger" data-action="archive-clear">Delete all</button>` : '') +
+      `<button type="button" class="btn" data-action="archive-back">Back</button>` +
+      `<button value="ok" class="btn primary">Done</button></div></form>`;
+    const form = modal.querySelector('form');
+    form.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-action]');
+      if (!b) return;
+      const id = b.closest('li')?.dataset.id;
+      const all = await getArchive();
+      if (b.dataset.action === 'archive-back') { openSettings(); return; }
+      if (b.dataset.action === 'archive-clear') {
+        if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Click again to delete all'; return; }
+        await setArchive([]);
+        toast('Archive emptied');
+        showArchive();
+        return;
+      }
+      const a = all.find((x) => x.id === id);
+      if (!a) return;
+      await setArchive(all.filter((x) => x.id !== id));
+      if (b.dataset.action === 'archive-restore') {
+        const t = unpackTask(a.id, a);
+        if (!listById(t.listId)) t.listId = state.lists[0].id;
+        Object.assign(t, { done: false, completedAt: 0, order: topOrder(t.listId) });
+        if (!taskById(t.id)) state.tasks.push(normalize({ ...state, tasks: [t] }).tasks[0]);
+        save();
+        render();
+        toast(`Task restored to ${listById(t.listId).name}`);
+      }
+      showArchive();
+    });
+  }
+
   // What to tell the person after "Send a test", including where their computer's
   // notification switch lives (the most common reason a notification doesn't appear).
   function testResultHTML(res) {
@@ -977,6 +1169,10 @@
       `<span class="choice-text"><span class="choice-label">${esc(label)}</span>` +
       (help ? `<span class="choice-help">${esc(help)}</span>` : '') + `</span></label>`;
     const rem = canRemind ? await getReminder() : null;
+    const badge = canRemind ? await getBadge() : null;
+    const backups = localArea ? (await getBackups()).slice().reverse() : null;
+    const archived = localArea ? (await getArchive()).length : 0;
+    const doneCount = state.tasks.filter((t) => t.done).length;
     modal.returnValue = '';
     modal.classList.add('wide');
     modal.innerHTML =
@@ -997,6 +1193,26 @@
           `<div class="test-result" id="testResult" role="status" hidden></div>` +
           `<p class="choices-note">Your browser needs to be open. If it isn’t at that time, the reminder shows up when you next open it that day.</p>` +
           `</div></fieldset>`
+        : '') +
+      (badge
+        ? `<fieldset class="choices"><legend>Toolbar icon</legend>` +
+          `<label class="switch-row"><input type="checkbox" id="badgeOn" role="switch"${badge.on ? ' checked' : ''}>` +
+          `<span class="choice-text"><span class="choice-label">Show a count on the CheckRow icon</span>` +
+          `<span class="choice-help">How many tasks are overdue or due today. Red when something is overdue.</span></span></label>` +
+          `</fieldset>`
+        : '') +
+      (backups
+        ? `<fieldset class="choices"><legend>Backups &amp; archive</legend>` +
+          `<p class="choices-note flush">CheckRow saves a copy of your tasks on this computer once a day and keeps the last 7.</p>` +
+          (backups.length
+            ? `<ul class="backup-list">${backups.map((b) => `<li>${icon('history')}<span>${esc(dayLabel(b.day))} · ${backupTasks(b)} task${backupTasks(b) === 1 ? '' : 's'}</span>` +
+              `<button type="button" class="text-btn" data-action="restore-backup" data-day="${esc(b.day)}">Restore</button></li>`).join('')}</ul>`
+            : `<p class="empty-note">No backups yet. The first one is saved within a day.</p>`) +
+          `<div class="archive-row">${icon('archive')}<span id="archiveCount">${archived} archived task${archived === 1 ? '' : 's'}</span>` +
+          `<button type="button" class="text-btn" data-action="view-archive">View</button>` +
+          `<button type="button" class="text-btn" data-action="archive-now"${doneCount ? '' : ' disabled'}>Archive all completed</button></div>` +
+          `<p class="choices-note">Completed tasks move to the archive on this computer ${ARCHIVE_DAYS} days after you finish them, so sync never fills up.</p>` +
+          `</fieldset>`
         : '') +
       `<fieldset class="choices"><legend>Default sort order</legend>` +
       SORTS.map(([k, label]) => radio('defaultSort', k, label, SORT_HELP[k], state.defaultSort === k)).join('') +
@@ -1025,6 +1241,7 @@
       if (n === 'defaultSort') setDefaultSort(e.target.value);
       else if (n === 'theme') { state.theme = e.target.value; save(); applyTheme(); }
       else if (id === 'chatEmail') { state.chatEmail = e.target.value.trim(); save(); }
+      else if (id === 'badgeOn') { syncArea.set({ badge: { on: e.target.checked } }).catch(() => toast('Couldn’t save that setting.')); }
       else if (id === 'remOn' || n === 'remDay' || id === 'remTime') {
         const r = readReminder();
         $('.rem-detail', form).hidden = !r.on;
@@ -1033,6 +1250,23 @@
       }
     });
     form.addEventListener('click', async (e) => {
+      const act = e.target.closest('[data-action]');
+      if (act && act.dataset.action === 'restore-backup') {
+        // Wait for Settings to finish closing, or its close event would answer the next question.
+        const day = act.dataset.day;
+        modal.addEventListener('close', () => setTimeout(() => restoreBackup(day)), { once: true });
+        modal.close();
+        return;
+      }
+      if (act && act.dataset.action === 'view-archive') { showArchive(); return; }
+      if (act && act.dataset.action === 'archive-now') {
+        act.disabled = true;
+        const n = await archiveCompleted(true);
+        const total = (await getArchive()).length;
+        $('#archiveCount', form).textContent = `${total} archived task${total === 1 ? '' : 's'}`;
+        toast(n ? `Archived ${n} completed task${n === 1 ? '' : 's'}` : 'No completed tasks to archive');
+        return;
+      }
       const btn = e.target.closest('[data-action="test-reminder"]');
       if (!btn) return;
       const out = $('#testResult', form);
@@ -1045,7 +1279,7 @@
       out.hidden = false;
     });
     modal.addEventListener('close', () => modal.classList.remove('wide'), { once: true });
-    modal.showModal();
+    if (!modal.open) modal.showModal();
     (form.querySelector('#remOn') || form.querySelector('input[name="defaultSort"]:checked'))?.focus();
   }
 
@@ -1124,7 +1358,7 @@
   }
 
   // ---------- Inline due date & priority pickers ----------
-  function dueMenu(anchor, current, apply) {
+  function dueMenu(anchor, current, apply, rep) {
     const plus = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return toKey(d); };
     const day = (k) => parseKey(k).toLocaleDateString(undefined, { weekday: 'short' });
     const full = (k) => parseKey(k).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
@@ -1134,9 +1368,18 @@
       { label: 'Tomorrow', hint: day(tomorrow), checked: current === tomorrow, run: () => apply(tomorrow) },
       { label: 'Next week', hint: full(nextWeek), checked: current === nextWeek, run: () => apply(nextWeek) },
       { type: 'date', label: 'Pick a date', value: current, run: (v) => apply(v) },
+      ...(rep ? [{ type: 'sep' }, {
+        label: 'Repeat', icon: 'repeat', hint: rep.value ? repeatLabel(rep.value, current).replace(/ on .*/, '') : 'Off',
+        run: () => repeatMenu(anchor, rep.value, current, rep.apply),
+      }] : []),
       { type: 'sep' },
       { label: 'No due date', disabled: !current, run: () => apply('') },
     ]);
+  }
+  function repeatMenu(anchor, current, due, apply) {
+    openMenu(anchor, ['', ...REPEATS].map((r) => ({
+      label: repeatLabel(r, due), checked: (current || '') === r, run: () => apply(r),
+    })));
   }
   function priorityMenu(anchor, current, apply) {
     openMenu(anchor, [3, 2, 1, 0].map((p) => ({
@@ -1192,7 +1435,10 @@
     } else {
       finish();
     }
-    if (completing) toast('Task completed', () => { setDone(t, false); render(); });
+    const next = completing && spawned.has(t.id) ? taskById(spawned.get(t.id).id) : null;
+    const when = next ? fmtDue(next.due) : '';
+    const msg = next ? `Task completed. Next one ${/^(Today|Tomorrow)$/.test(when) ? when.toLowerCase() : `on ${when}`}` : 'Task completed';
+    if (completing) toast(msg, () => { setDone(t, false); render(); });
     else toast('Task moved back to your list');
   }
 
@@ -1286,8 +1532,9 @@
     ]);
   }
 
-  function exportData() {
-    const data = { app: 'CheckRow', exportedAt: new Date().toISOString(), ...state };
+  async function exportData() {
+    const archive = await getArchive();
+    const data = { app: 'CheckRow', exportedAt: new Date().toISOString(), ...state, ...(archive.length ? { archive } : {}) };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1320,6 +1567,10 @@
     const previous = state;
     state = normalize(data);
     ui.openTaskId = null;
+    if (Array.isArray(data.archive) && data.archive.length) {
+      const items = data.archive.filter((a) => a && typeof a.id === 'string' && a.l);
+      await putInArchive(items.map((a) => unpackTask(a.id, a)));
+    }
     save();
     render();
     toast('Backup imported', () => { state = previous; save(); render(); });
@@ -1423,7 +1674,10 @@
         const kb = e.detail === 0;
         const action = b.dataset.action;
         if (action === 'pick-due' && t) {
-          dueMenu(b, t.due, (v) => { t.due = v; save(); render(); refocus(t.id, action, kb); });
+          dueMenu(b, t.due, (v) => { t.due = v; if (!v) t.repeat = ''; save(); render(); refocus(t.id, action, kb); }, {
+            value: t.repeat,
+            apply: (r) => { t.repeat = r; if (r && !t.due) t.due = todayKey(); save(); render(); refocus(t.id, action, kb); },
+          });
         } else if (action === 'pick-pri' && t) {
           priorityMenu(b, t.priority, (p) => { t.priority = p; save(); render(); refocus(t.id, action, kb); });
         } else if (action === 'draft-due') {
@@ -1545,7 +1799,11 @@
     const t = taskById(ui.openTaskId);
     if (!t) return;
     if (e.target.id === 'dTitle') { t.title = t.title.trim(); }
-    else if (e.target.id === 'dDue') { t.due = e.target.value || ''; }
+    else if (e.target.id === 'dDue') { t.due = e.target.value || ''; if (!t.due) t.repeat = ''; }
+    else if (e.target.id === 'dRepeat') {
+      t.repeat = REPEATS.includes(e.target.value) ? e.target.value : '';
+      if (t.repeat && !t.due) t.due = todayKey();
+    }
     else if (e.target.name === 'dPri') { t.priority = Number(e.target.value); }
     else if (e.target.id === 'dList') {
       if (!listById(e.target.value)) return;
@@ -1564,7 +1822,7 @@
     switch (b.dataset.action) {
       case 'close-details': closeDetails(); break;
       case 'clear-due':
-        if (t) { t.due = ''; save(); render(); $('#dDue')?.focus(); }
+        if (t) { t.due = ''; t.repeat = ''; save(); render(); $('#dDue')?.focus(); }
         break;
       case 'details-done':
         if (t) { toggleTask(t); $('[data-action="details-done"]')?.focus(); }
@@ -1615,11 +1873,12 @@
   let lastDay = todayKey();
   setInterval(() => {
     const k = todayKey();
-    if (k !== lastDay) { lastDay = k; render(); }
+    if (k !== lastDay) { lastDay = k; render(); archiveCompleted(); }
   }, 60000);
 
   init().then(() => {
     render();
+    archiveCompleted();
     syncScrim();
     updateUsage();
     if (location.hash === '#brief') {

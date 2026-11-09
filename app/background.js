@@ -2,12 +2,17 @@
 // - Opens the side panel from the toolbar icon.
 // - Runs the optional daily reminder: on the chosen days and time it shows a
 //   notification; clicking it opens CheckRow with the AI Brief window.
+// - Keeps a daily backup of the tasks in chrome.storage.local (last 7 days).
+// - Shows the number of overdue + due-today tasks on the toolbar icon.
+// Everything stays in the browser; nothing is sent anywhere.
 
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((err) => console.error('CheckRow: could not set side panel behavior', err));
 
 const ALARM = 'checkrow-brief';
+const DAILY = 'checkrow-daily'; // just after midnight: backup + refresh the count
+const KEEP_BACKUPS = 7;
 const NOTE_PREFIX = 'checkrow-brief';
 const DEFAULT_REMINDER = { on: false, days: [1, 2, 3, 4, 5], time: '08:30' };
 
@@ -99,20 +104,79 @@ async function showReminder() {
   return id;
 }
 
+// ---------- Daily backup ----------
+// One copy per day of everything CheckRow keeps in sync, stored on this computer.
+async function backupIfDue() {
+  const today = dayKey(new Date());
+  const { backups } = await chrome.storage.local.get('backups');
+  const list = Array.isArray(backups) ? backups : [];
+  if (list.length && list[list.length - 1].day === today) return false;
+  const all = await chrome.storage.sync.get(null);
+  const items = {};
+  for (const [k, v] of Object.entries(all)) if (k === 'meta' || k.startsWith('t:')) items[k] = v;
+  if (!items.meta) return false; // nothing saved yet
+  list.push({ day: today, at: Date.now(), items });
+  await chrome.storage.local.set({ backups: list.slice(-KEEP_BACKUPS) });
+  return true;
+}
+
+// ---------- Toolbar count ----------
+async function updateBadge() {
+  const { badge } = await chrome.storage.sync.get('badge');
+  const on = !badge || badge.on !== false;
+  const c = on ? await taskCounts() : { overdue: 0, dueToday: 0 };
+  const n = c.overdue + c.dueToday;
+  await chrome.action.setBadgeText({ text: n ? (n > 99 ? '99+' : String(n)) : '' });
+  if (n) {
+    await chrome.action.setBadgeBackgroundColor({ color: c.overdue ? '#D93025' : '#1A73E8' });
+    if (chrome.action.setBadgeTextColor) await chrome.action.setBadgeTextColor({ color: '#FFFFFF' });
+  }
+  await chrome.action.setTitle({
+    title: !n ? 'Open CheckRow' : `CheckRow: ${[c.overdue && `${c.overdue} overdue`, c.dueToday && `${c.dueToday} due today`].filter(Boolean).join(', ')}`,
+  });
+}
+
+async function scheduleDaily() {
+  const next = new Date();
+  next.setHours(24, 0, 30, 0); // 30 seconds after midnight
+  await chrome.alarms.create(DAILY, { when: next.getTime() });
+}
+
+async function dailyChores() {
+  try { await backupIfDue(); } catch (e) { console.error('CheckRow: backup failed', e); }
+  try { await updateBadge(); } catch (e) { console.error('CheckRow: badge failed', e); }
+}
+
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== ALARM) return;
-  await remindIfDue();
-  await schedule();
+  if (alarm.name === ALARM) {
+    await remindIfDue();
+    await schedule();
+  } else if (alarm.name === DAILY) {
+    await dailyChores();
+    await scheduleDaily();
+  }
 });
 
-chrome.runtime.onInstalled.addListener(() => { schedule(); });
+chrome.runtime.onInstalled.addListener(async () => {
+  await schedule();
+  await scheduleDaily();
+  await dailyChores();
+});
 chrome.runtime.onStartup.addListener(async () => {
   await remindIfDue();
   await schedule();
+  await scheduleDaily();
+  await dailyChores();
 });
 
+let badgeTimer = 0;
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'sync' && changes.reminder) schedule();
+  if (area !== 'sync') return;
+  if (changes.reminder) schedule();
+  if (changes.badge || Object.keys(changes).some((k) => k.startsWith('t:'))) {
+    clearTimeout(badgeTimer);
+    badgeTimer = setTimeout(() => { updateBadge().catch(() => {}); }, 300);
+  }
 });
 
 chrome.notifications.onClicked.addListener((id) => {
