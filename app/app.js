@@ -151,7 +151,7 @@
   }
 
   let state = freshState(); // replaced in init()
-  const ui = { search: '', openTaskId: null, dragId: null, draft: { due: '', priority: 0 } };
+  const ui = { search: '', drawerId: null, openTaskId: null, dragId: null, draft: { due: '', priority: 0 } };
 
   // ---------- Sync (Chrome/Edge account sync via chrome.storage.sync) ----------
   // No server: the browser syncs this storage across every computer signed in to the
@@ -177,10 +177,20 @@
     priority: v.p || 0, starred: !!v.s, done: !!v.x, completedAt: v.c || 0,
     createdAt: v.a || Date.now(), order: v.o || 0,
   });
+  // Stable text form of a synced value. Chrome hands values back with their fields in
+  // alphabetical order, so compare with sorted keys or our own saves look like changes
+  // from another computer (and re-draw the list mid-edit).
+  function canon(v) {
+    if (Array.isArray(v)) return `[${v.map(canon).join(',')}]`;
+    if (v && typeof v === 'object') {
+      return `{${Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}`;
+    }
+    return JSON.stringify(v);
+  }
   function syncSnapshot() {
     const m = new Map();
-    m.set('meta', JSON.stringify({ v: 1, lists: state.lists.map((l) => ({ id: l.id, name: l.name })), defaultSort: state.defaultSort }));
-    for (const t of state.tasks) m.set(`t:${t.id}`, JSON.stringify(packTask(t)));
+    m.set('meta', canon({ v: 1, lists: state.lists.map((l) => ({ id: l.id, name: l.name })), defaultSort: state.defaultSort }));
+    for (const t of state.tasks) m.set(`t:${t.id}`, canon(packTask(t)));
     return m;
   }
   function fromSyncItems(items) {
@@ -266,7 +276,7 @@
     let touched = false;
     for (const [k, change] of Object.entries(changes)) {
       if (!isSyncKey(k)) continue;
-      const nv = change.newValue === undefined ? undefined : JSON.stringify(change.newValue);
+      const nv = change.newValue === undefined ? undefined : canon(change.newValue);
       if (Sync.last.get(k) === nv || (Sync.inflight.has(k) && Sync.inflight.get(k) === nv)) continue; // our own write
       if (nv === undefined) Sync.last.delete(k); else Sync.last.set(k, nv);
       if (k === 'meta') {
@@ -326,7 +336,7 @@
       Sync.status = 'error';
       return;
     }
-    for (const [k, v] of Object.entries(items)) if (isSyncKey(k)) Sync.last.set(k, JSON.stringify(v));
+    for (const [k, v] of Object.entries(items)) if (isSyncKey(k)) Sync.last.set(k, canon(v));
     const remote = fromSyncItems(items);
     const prefs = local || freshState();
     let data;
@@ -486,24 +496,26 @@
     }
     if (t.notes.trim()) meta.push(`<span class="notes-preview">${esc(t.notes.trim().split('\n')[0])}</span>`);
     const label = esc(t.title || 'Untitled task');
-    return `<li class="task${t.done ? ' is-done' : ''}${ui.openTaskId === t.id ? ' is-open' : ''}" data-id="${esc(t.id)}">` +
+    return `<li class="task${t.done ? ' is-done' : ''}${ui.openTaskId === t.id ? ' is-open' : ''}${ui.drawerId === t.id ? ' drawer-open' : ''}" data-id="${esc(t.id)}">` +
       (canDrag ? `<button type="button" class="grip" tabindex="-1" aria-hidden="true">${icon('grip')}</button>` : '') +
       `<button type="button" class="check" data-action="toggle" role="checkbox" aria-checked="${t.done}" ` +
       `aria-label="${t.done ? 'Mark not complete' : 'Mark complete'}: ${label}" title="${t.done ? 'Mark not complete' : 'Mark complete'}">` +
       `<span class="check-circle">${icon('check')}</span></button>` +
       `<div class="task-body">` +
-      `<input class="task-title" value="${esc(t.title)}" placeholder="Title" aria-label="Task title"${t.done ? ' readonly' : ''}>` +
+      `<textarea class="task-title" rows="1" placeholder="Title" aria-label="Task title" spellcheck="false"${t.done ? ' readonly' : ''}>${esc(t.title)}</textarea>` +
       (meta.length ? `<div class="meta" data-action="open">${meta.join('')}</div>` : '') +
       `</div>` +
       (t.starred ? `<span class="star-badge" aria-hidden="true">${icon('star')}</span>` : '') +
-      `<div class="row-actions">` +
+      `<div class="row-actions" id="drawer-${esc(t.id)}">` +
       (t.done ? '' :
         `<button type="button" class="icon-btn${t.due ? ' set' : ''}" data-action="pick-due" title="${t.due ? 'Change due date' : 'Add due date'}" aria-label="${t.due ? 'Change' : 'Add'} due date: ${label}">${icon('calendar')}</button>` +
         `<button type="button" class="icon-btn pri-${t.priority}" data-action="pick-pri" title="${t.priority ? 'Change priority' : 'Set priority'}" aria-label="${t.priority ? 'Change' : 'Set'} priority: ${label}">${icon('flag')}</button>`) +
       `<button type="button" class="icon-btn star${t.starred ? ' on' : ''}" data-action="star" aria-pressed="${t.starred}" title="${t.starred ? 'Unstar' : 'Star'}" aria-label="Star: ${label}">${icon('star')}</button>` +
       `<button type="button" class="icon-btn" data-action="open" title="Details" aria-label="Details: ${label}">${icon('details')}</button>` +
       `<button type="button" class="icon-btn del" data-action="delete" title="Delete task" aria-label="Delete: ${label}">${icon('trash')}</button>` +
-      `</div></li>`;
+      `</div>` +
+      `<button type="button" class="icon-btn more-btn" data-action="row-more" aria-controls="drawer-${esc(t.id)}" aria-expanded="${ui.drawerId === t.id}" title="${ui.drawerId === t.id ? 'Close options' : 'Options'}" aria-label="Options: ${label}">${icon('more', 'i-more')}${icon('close', 'i-close')}</button>` +
+      `</li>`;
   }
 
   function emptyState(v, anyDone) {
@@ -554,7 +566,42 @@
         : '') +
       `</div>`;
     if (pendingText) $('#addInput').value = pendingText;
+    sizeTitles();
   }
+
+  // Task names wrap. Long ones show two lines (fading out) until you click in to edit,
+  // then the box grows to show the whole name.
+  const TITLE_LINES = 2;
+  function sizeTitle(el) {
+    el.style.height = 'auto';
+    const cs = getComputedStyle(el);
+    const line = parseFloat(cs.lineHeight) || 20;
+    const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const full = el.scrollHeight;
+    const max = line * TITLE_LINES + pad;
+    const clamp = document.activeElement !== el && full > max + 1;
+    el.classList.toggle('clamped', clamp);
+    el.style.height = `${clamp ? max : full}px`;
+  }
+  function sizeTitles() { main.querySelectorAll('.task-title').forEach(sizeTitle); }
+  let titleWidth = 0;
+  new ResizeObserver(() => {
+    if (main.clientWidth !== titleWidth) { titleWidth = main.clientWidth; sizeTitles(); }
+  }).observe(main);
+  main.addEventListener('focusin', (e) => { if (e.target.matches('.task-title')) sizeTitle(e.target); });
+  main.addEventListener('focusout', (e) => {
+    if (e.target.matches('.task-title')) { e.target.scrollTop = 0; sizeTitle(e.target); }
+  });
+  main.addEventListener('input', (e) => {
+    if (!e.target.matches('.task-title')) return;
+    // Names are one paragraph: a pasted line break becomes a space.
+    if (/[\r\n]/.test(e.target.value)) {
+      const pos = e.target.selectionStart;
+      e.target.value = e.target.value.replace(/\s*[\r\n]+\s*/g, ' ');
+      e.target.setSelectionRange(pos, pos);
+    }
+    sizeTitle(e.target);
+  });
 
   function renderDetails() {
     const t = taskById(ui.openTaskId);
@@ -1120,7 +1167,7 @@
     const hadFocus = li && li.contains(document.activeElement);
     const undo = removeTask(t);
     render();
-    if (hadFocus) focusRowNear(listSel, index, '[data-action="delete"]');
+    if (hadFocus) focusRowNear(listSel, index, '.check');
     toast('Task deleted', undo);
   }
 
@@ -1298,6 +1345,14 @@
     switch (b.dataset.action) {
       case 'toggle': if (t) toggleTask(t, li); break;
       case 'delete': if (t) deleteTaskWithUndo(t, li); break;
+      case 'row-more': if (t) {
+        const opening = ui.drawerId !== t.id;
+        main.querySelectorAll('.task.drawer-open').forEach((r) => { r.classList.remove('drawer-open'); r.querySelector('.more-btn')?.setAttribute('aria-expanded', 'false'); });
+        ui.drawerId = opening ? t.id : null;
+        li.classList.toggle('drawer-open', opening);
+        b.setAttribute('aria-expanded', String(opening));
+        b.title = opening ? 'Close options' : 'Options';
+      } break;
       case 'star': if (t) { t.starred = !t.starred; save(); render(); } break;
       case 'open': if (t) openDetails(t.id); break;
       case 'toggle-done':
@@ -1480,8 +1535,14 @@
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || modal.open) return;
     if (menuEl) { const a = menuEl.anchor; closeMenu(); a?.focus(); return; }
+    if (ui.drawerId) { const r = main.querySelector('.task.drawer-open'); ui.drawerId = null; r?.classList.remove('drawer-open'); r?.querySelector('.more-btn')?.focus(); return; }
     if (document.body.classList.contains('sidebar-open')) { document.body.classList.remove('sidebar-open'); syncScrim(); return; }
     if (ui.openTaskId) closeDetails();
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (!ui.drawerId || menuEl || e.target.closest('.task.drawer-open, .menu, .popover')) return;
+    ui.drawerId = null;
+    main.querySelectorAll('.task.drawer-open').forEach((r) => r.classList.remove('drawer-open'));
   });
   window.addEventListener('resize', closeMenu);
   narrowMQ.addEventListener('change', () => { document.body.classList.remove('sidebar-open'); syncScrim(); });

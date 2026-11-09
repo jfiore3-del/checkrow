@@ -320,10 +320,18 @@ body.sidebar-collapsed .sidebar { display: none; }
 
 .task-body { flex: 1; min-width: 0; padding: 9px 0 8px; }
 .task-title {
-  width: 100%; padding: 2px 0; margin: 0;
+  display: block; width: 100%; padding: 2px 0; margin: 0;
   border: 0; outline: 0; background: transparent;
-  font-size: 15px; color: var(--text);
+  font: inherit; font-size: 15px; line-height: 20px; color: var(--text);
+  resize: none; overflow: hidden; overflow-wrap: anywhere; white-space: pre-wrap;
 }
+/* Long names: show two lines, fading out the end of the second, until you click in. */
+.task-title.clamped {
+  -webkit-mask-image: linear-gradient(to bottom, #000 50%, transparent 50%), linear-gradient(to right, #000 calc(100% - 64px), transparent);
+  mask-image: linear-gradient(to bottom, #000 50%, transparent 50%), linear-gradient(to right, #000 calc(100% - 64px), transparent);
+  cursor: text;
+}
+.task-title:focus { border-radius: 4px; box-shadow: 0 0 0 2px var(--accent-weak); }
 .task-title::placeholder { color: var(--text-2); }
 .task.is-done .task-title { text-decoration: line-through; color: var(--text-2); }
 .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; cursor: pointer; }
@@ -649,3 +657,31 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ---- Task options drawer: the dots button slides the row's buttons out from the right ---- */
+.task { position: relative; }
+.more-btn { flex: none; color: var(--text-2); opacity: .55; margin-right: 2px; transition: opacity .15s, background .15s; z-index: 2; }
+.task:hover .more-btn, .more-btn:focus-visible, .task.drawer-open .more-btn { opacity: 1; }
+.more-btn .i-close { display: none; }
+.task.drawer-open .more-btn .i-more { display: none; }
+.task.drawer-open .more-btn .i-close { display: block; }
+.task .row-actions, .task:hover .row-actions, .task.is-open .row-actions, .row-actions:focus-within {
+  position: absolute; top: 4px; right: 46px; padding: 2px 4px; opacity: 1;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 22px;
+  box-shadow: -6px 0 16px rgba(0,0,0,.10);
+  transform: translateX(28px); clip-path: inset(-20px -20px -20px 100% round 22px);
+  pointer-events: none; visibility: hidden;
+  transition: transform .26s cubic-bezier(.2,.8,.2,1), clip-path .26s cubic-bezier(.2,.8,.2,1), visibility 0s linear .26s;
+}
+.task.drawer-open .row-actions {
+  transform: none; clip-path: inset(-20px -20px -20px -20px round 22px);
+  pointer-events: auto; visibility: visible; transition-delay: 0s;
+}
+@media (max-width: 560px) { .task .row-actions { top: 4px; padding: 2px 4px; } }
+@media (hover: none) { .task .row-actions { position: absolute; } .more-btn { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .task .row-actions { transition: none; } }
+
+/* Wrapped names: keep the circle, star and dots lined up with the first line. */
+.task { align-items: flex-start; }
+.task .more-btn { margin-top: 2px; }
+.star-badge { height: 44px; }
