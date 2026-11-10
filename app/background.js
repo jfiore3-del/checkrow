@@ -63,10 +63,12 @@ async function remindIfDue() {
   const now = new Date();
   if (!r.days.includes(now.getDay())) return;
   if (now < at(now, r.time)) return;
-  const today = dayKey(now);
+  // "<day> <time>": today's reminder for this time was shown (or skipped because the time
+  // had already passed when it was set). Changing the time to later today reminds again.
+  const mark = `${dayKey(now)} ${r.time}`;
   const { reminderLast } = await chrome.storage.sync.get('reminderLast');
-  if (reminderLast === today) return;
-  await chrome.storage.sync.set({ reminderLast: today });
+  if (reminderLast === mark) return;
+  await chrome.storage.sync.set({ reminderLast: mark });
   await showReminder();
 }
 

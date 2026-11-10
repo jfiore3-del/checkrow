@@ -1051,8 +1051,9 @@
     const [h, m] = r.time.split(':').map(Number);
     const passed = now.getHours() * 60 + now.getMinutes() >= h * 60 + m;
     const items = { reminder: r };
-    // Turning it on after today's time has passed shouldn't fire a reminder right away.
-    if (r.on && passed) items.reminderLast = todayKey();
+    // Setting a time that has already passed today shouldn't fire a reminder right away.
+    // The mark names the time too, so changing it to later today still reminds you.
+    if (r.on && passed) items.reminderLast = `${todayKey()} ${r.time}`;
     try { await syncArea.set(items); } catch (e) { toast('Couldn’t save the reminder.'); }
   }
 
