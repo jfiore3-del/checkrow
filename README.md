@@ -11,6 +11,9 @@ A clean, Google Workspace–style to-do list that lives in the Chrome side panel
 - **Repeating tasks**: daily, every weekday, weekly, monthly or yearly, from the date menu or the details panel. Completing one creates the next.
 - **Details panel**: notes, a checklist of steps, due date, repeat, a reminder, priority (Low / Medium / High) and moving a task to another list.
 - **Checklists**: break a task into steps; the row shows progress (2/5).
+- **Reminder schedules**: "Remind me every" Mon, Wed… at a time, until the task is done.
+- **Reminder buttons**: notifications have *Snooze 1 hour* and *Mark complete*, and can stay on screen until closed (Settings → Notifications).
+- **Add to calendar**: send a task's reminder or due date to Google Calendar, Outlook, or any calendar app (.ics), so your phone can remind you even when your computer is off.
 - **Reminders on a task**: pick a date and time and a notification pops up then (or when you next open your browser, up to a day late). Click it to open the task. Only one of your computers shows it.
 - **Sorting**: Priority (the default), Date, or My order (drag to reorder). Change the default for every list in **Settings**, or sort one list differently from the menu at the top of that list.
 - **AI Brief**: one click sends your open tasks (overdue, due today, coming up, by priority) to Claude, ChatGPT, Gemini or Grok for a morning brief. The brief is copied to your clipboard and the assistant opens in a new tab, pre-filled where the site supports it. You can edit the brief first or limit it to one list.

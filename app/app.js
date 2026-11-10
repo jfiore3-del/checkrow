@@ -96,6 +96,7 @@
     return t.due < k ? 'overdue' : t.due === k ? 'due-today' : '';
   }
 
+  const WEEK = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
   const STEPS_MAX = 30;   // checklist steps per task
   const STEP_MAX = 120;   // characters per step (keeps a task inside one 8 KB sync item)
 
@@ -140,6 +141,21 @@
     return toKey(d);
   }
 
+  // Reminder schedule on a task: { days: [0-6], time: 'HH:MM', since: ms } or null.
+  // "since" is when it was set; the background only fires for times after that.
+  function cleanSchedule(x) {
+    if (!x || !Array.isArray(x.days) || typeof x.time !== 'string' || !/^\d{2}:\d{2}$/.test(x.time)) return null;
+    const days = [...new Set(x.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
+    return days.length ? { days, time: x.time, since: Number(x.since) || 0 } : null;
+  }
+  const fmtTime = (hm) => { const [h, m] = hm.split(':').map(Number); return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); };
+  function scheduleLabel(sc) {
+    const d = sc.days.join();
+    const days = d === '0,1,2,3,4,5,6' ? 'Every day' : d === '1,2,3,4,5' ? 'Weekdays' : d === '0,6' ? 'Weekends'
+      : WEEK.filter(([n]) => sc.days.includes(n)).map(([, l]) => l).join(', ');
+    return `${days} ${fmtTime(sc.time)}`;
+  }
+
   // A reminder on a repeating task moves with it: same time, same days before the due date.
   function shiftRemind(remind, oldDue, newDue) {
     if (!remind || !oldDue || !newDue) return '';
@@ -174,6 +190,7 @@
         starred: !!t.starred,
         repeat: REPEATS.includes(t.repeat) && /^\d{4}-\d{2}-\d{2}$/.test(t.due) ? t.repeat : '',
         remind: typeof t.remind === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(t.remind) ? t.remind : '',
+        schedule: cleanSchedule(t.schedule),
         steps: Array.isArray(t.steps)
           ? t.steps.filter((x) => x && typeof x.text === 'string').slice(0, STEPS_MAX)
             .map((x) => ({ text: x.text.slice(0, STEP_MAX), done: !!x.done }))
@@ -248,6 +265,7 @@
     n: t.notes || undefined, d: t.due || undefined, p: t.priority || undefined,
     s: t.starred ? 1 : undefined, x: t.done ? 1 : undefined, c: t.completedAt || undefined,
     r: t.repeat || undefined, m: t.remind || undefined,
+    w: t.schedule ? { d: t.schedule.days, t: t.schedule.time, s: t.schedule.since } : undefined,
     k: t.steps && t.steps.length ? t.steps.map((x) => (x.done ? [x.text, 1] : [x.text])) : undefined,
     u: t.edits && Object.keys(t.edits).length ? Object.fromEntries(Object.entries(t.edits).map(([f, v]) => [f, v.toString(36)])) : undefined,
     a: t.createdAt, o: t.order,
@@ -257,6 +275,7 @@
     priority: v.p || 0, starred: !!v.s, done: !!v.x, completedAt: v.c || 0,
     repeat: REPEATS.includes(v.r) && v.d ? v.r : '',
     remind: typeof v.m === 'string' ? v.m : '',
+    schedule: v.w ? cleanSchedule({ days: v.w.d, time: v.w.t, since: v.w.s }) : null,
     steps: Array.isArray(v.k) ? v.k.filter(Array.isArray).map(([text, done]) => ({ text: String(text || ''), done: !!done })) : [],
     edits: v.u && typeof v.u === 'object'
       ? Object.fromEntries(Object.entries(v.u).map(([f, x]) => [f, parseInt(x, 36)]).filter(([f, x]) => FIELDS[f] && x > 0))
@@ -271,7 +290,7 @@
   // one computer and the date on another keeps both.
   const FIELDS = {
     l: ['listId'], t: ['title'], n: ['notes'], d: ['due'], p: ['priority'], s: ['starred'],
-    x: ['done', 'completedAt'], r: ['repeat'], m: ['remind'], k: ['steps'], o: ['order'],
+    x: ['done', 'completedAt'], r: ['repeat'], m: ['remind'], w: ['schedule'], k: ['steps'], o: ['order'],
   };
   const EPOCH = Date.UTC(2026, 0, 1);
   const stampNow = () => Math.max(1, Math.floor((Date.now() - EPOCH) / 1000));
@@ -597,7 +616,7 @@
       due: due || (state.view === 'today' ? todayKey() : ''),
       priority,
       starred: state.view === 'starred',
-      repeat: '', remind: '', steps: [], edits: {},
+      repeat: '', remind: '', schedule: null, steps: [], edits: {},
       done: false, completedAt: 0, createdAt: Date.now(),
       order: topOrder(listId),
     };
@@ -615,6 +634,7 @@
       const next = {
         ...t, id: uid(), due, done: false, completedAt: 0, createdAt: Date.now(), edits: {},
         steps: (t.steps || []).map((x) => ({ text: x.text, done: false })), // checklist starts fresh
+        schedule: t.schedule ? { ...t.schedule, days: [...t.schedule.days] } : null,
         remind: shiftRemind(t.remind, t.due, due), // same time, same distance from the due date
       };
       state.tasks.push(next);
@@ -701,7 +721,9 @@
         ? `<span class="chip">${icon('flag')}${PRI[t.priority]}</span>`
         : `<button type="button" class="chip chip-btn pri-${t.priority}" data-action="pick-pri" aria-label="${PRI[t.priority]} priority. Change priority">${icon('flag')}${PRI[t.priority]}</button>`);
     }
-    if (t.remind && !t.done) {
+    if (t.schedule && !t.done && !(t.remind && !remindPast(t.remind))) {
+      meta.push(`<button type="button" class="chip chip-btn" data-action="open-remind" aria-label="Reminder ${esc(scheduleLabel(t.schedule))}. Change reminder">${icon('bell')}${esc(scheduleLabel(t.schedule))}${icon('repeat', 'chip-repeat')}</button>`);
+    } else if (t.remind && !t.done) {
       meta.push(`<button type="button" class="chip chip-btn${remindPast(t.remind) ? ' chip-muted' : ''}" data-action="open-remind" aria-label="Reminder ${esc(fmtRemind(t.remind))}. Change reminder">${icon('bell')}${esc(fmtRemind(t.remind))}</button>`);
     }
     if (t.steps && t.steps.length) {
@@ -916,7 +938,16 @@
       (t.done ? '' : `<div class="field"><label for="dRemind">Remind me</label><div class="row">` +
         `<input id="dRemind" class="input" type="datetime-local" value="${esc(t.remind)}">` +
         (t.remind ? `<button type="button" class="text-btn" data-action="clear-remind">Clear</button>` : '') +
-        `</div>${t.remind && remindPast(t.remind) ? `<p class="field-help">This time has passed.</p>` : `<p class="field-help">A notification pops up at this time. Your browser needs to be open; if it isn’t, it shows when you next open it.</p>`}</div>`) +
+        `</div>${t.remind && remindPast(t.remind) ? `<p class="field-help">This time has passed.</p>` : `<p class="field-help">A notification pops up at this time. Your browser needs to be open; if it isn’t, it shows when you next open it.</p>`}</div>` +
+        `<fieldset class="field sched"><legend>Remind me every</legend>` +
+        `<div class="day-row compact" role="group" aria-label="Days">` +
+        WEEK.map(([d, label]) => `<label class="day"><input type="checkbox" name="schedDay" value="${d}"${t.schedule && t.schedule.days.includes(d) ? ' checked' : ''}><span>${label}</span></label>`).join('') +
+        `</div><div class="row"><label class="sr-only" for="dSchedTime">Time</label>` +
+        `<input id="dSchedTime" class="input" type="time" value="${esc(t.schedule ? t.schedule.time : (ui.schedTime && ui.schedTime.id === t.id ? ui.schedTime.time : '09:00'))}">` +
+        (t.schedule ? `<button type="button" class="text-btn" data-action="clear-sched">Clear</button>` : '') +
+        `</div><p class="field-help">${t.schedule ? `${esc(scheduleLabel(t.schedule))}, until the task is done.` : 'Pick days for a reminder that repeats until the task is done.'}</p></fieldset>` +
+        `<div class="field"><button type="button" class="btn cal-btn" data-action="add-calendar"${calendarEvent(t) ? '' : ' disabled'}>${icon('calendar')}Add to calendar</button>` +
+        `<p class="field-help">${calendarEvent(t) ? 'Your calendar can remind you on your phone, even when your computer is off.' : 'Set a due date or a reminder first.'}</p></div>`) +
       `<fieldset class="field"><legend>Priority</legend><div class="seg">` +
       PRI.map((p, i) => `<label class="seg-opt pri-${i}"><input type="radio" name="dPri" value="${i}"${t.priority === i ? ' checked' : ''}>` +
         `<span>${i ? icon('flag') : ''}${p}</span></label>`).join('') +
@@ -1073,6 +1104,91 @@
       try { return document.execCommand('copy'); } catch (err) { return false; }
     }
   }
+  // ---------- Add to calendar ----------
+  // The event: at the reminder time (15 minutes), or the next scheduled reminder (repeating
+  // weekly), or all day on the due date. Opens in the person's own calendar; nothing is
+  // sent anywhere else.
+  function calendarEvent(t) {
+    if (t.done) return null;
+    const notes = [t.notes, t.steps && t.steps.length ? t.steps.map((x) => `${x.done ? '☑' : '☐'} ${x.text}`).join('\n') : '', 'Added from CheckRow'].filter(Boolean).join('\n\n');
+    const base = { title: t.title || 'Untitled task', notes, id: t.id };
+    if (t.remind && !remindPast(t.remind)) return { ...base, start: new Date(t.remind) };
+    if (t.schedule) {
+      const now = new Date();
+      for (let i = 0; i < 8; i += 1) {
+        const d = new Date(now); d.setDate(d.getDate() + i);
+        if (!t.schedule.days.includes(d.getDay())) continue;
+        const [h, m] = t.schedule.time.split(':').map(Number);
+        d.setHours(h, m, 0, 0);
+        if (d > now) return { ...base, start: d, weekly: t.schedule.days };
+      }
+    }
+    if (t.remind) return { ...base, start: new Date(t.remind) };
+    if (t.due) return { ...base, allDay: t.due };
+    return null;
+  }
+  const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  const icsLocal = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+  const icsDate = (k) => k.replace(/-/g, '');
+  const nextDayKey = (k) => { const d = parseKey(k); d.setDate(d.getDate() + 1); return toKey(d); };
+  const isoOffset = (d) => {
+    const o = -d.getTimezoneOffset();
+    return `${toKey(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:00${o >= 0 ? '+' : '-'}${pad(Math.floor(Math.abs(o) / 60))}:${pad(Math.abs(o) % 60)}`;
+  };
+  function googleCalendarUrl(ev) {
+    const end = ev.start && new Date(ev.start.getTime() + 15 * 60000);
+    const q = new URLSearchParams({
+      action: 'TEMPLATE', text: ev.title, details: ev.notes,
+      dates: ev.allDay ? `${icsDate(ev.allDay)}/${icsDate(nextDayKey(ev.allDay))}` : `${icsLocal(ev.start)}/${icsLocal(end)}`,
+    });
+    if (!ev.allDay) q.set('ctz', Intl.DateTimeFormat().resolvedOptions().timeZone);
+    if (ev.weekly) q.set('recur', `RRULE:FREQ=WEEKLY;BYDAY=${ev.weekly.map((d) => BYDAY[d]).join(',')}`);
+    if (state.chatEmail) q.set('authuser', state.chatEmail);
+    return `https://calendar.google.com/calendar/render?${q}`;
+  }
+  function outlookUrl(ev, host) {
+    const q = new URLSearchParams({ path: '/calendar/action/compose', rru: 'addevent', subject: ev.title, body: ev.notes });
+    if (ev.allDay) { q.set('startdt', ev.allDay); q.set('enddt', nextDayKey(ev.allDay)); q.set('allday', 'true'); }
+    else { q.set('startdt', isoOffset(ev.start)); q.set('enddt', isoOffset(new Date(ev.start.getTime() + 15 * 60000))); q.set('allday', 'false'); }
+    return `https://${host}/calendar/0/deeplink/compose?${q}`;
+  }
+  const icsText = (s) => String(s).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/([,;])/g, '\\$1');
+  function icsFile(ev) {
+    const now = new Date();
+    const utc = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
+    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//CheckRow//EN', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
+      `UID:${ev.id}-${Date.now()}@checkrow`, `DTSTAMP:${utc}`];
+    if (ev.allDay) lines.push(`DTSTART;VALUE=DATE:${icsDate(ev.allDay)}`, `DTEND;VALUE=DATE:${icsDate(nextDayKey(ev.allDay))}`);
+    else lines.push(`DTSTART:${icsLocal(ev.start)}`, `DTEND:${icsLocal(new Date(ev.start.getTime() + 15 * 60000))}`);
+    if (ev.weekly) lines.push(`RRULE:FREQ=WEEKLY;BYDAY=${ev.weekly.map((d) => BYDAY[d]).join(',')}`);
+    lines.push(`SUMMARY:${icsText(ev.title)}`, `DESCRIPTION:${icsText(ev.notes)}`,
+      'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(ev.title)}`, `TRIGGER:${ev.allDay ? 'PT9H' : 'PT0M'}`, 'END:VALARM',
+      'END:VEVENT', 'END:VCALENDAR');
+    return lines.join('\r\n') + '\r\n';
+  }
+  function calendarMenu(anchor, t) {
+    const ev = calendarEvent(t);
+    if (!ev) return;
+    const once = ev.weekly ? () => toast('Outlook adds it once. To repeat it, open the event in Outlook and choose Repeat.') : () => {};
+    openMenu(anchor, [
+      { label: 'Google Calendar', run: () => openUrl(googleCalendarUrl(ev)) },
+      { label: 'Outlook (work or school)', run: () => { openUrl(outlookUrl(ev, 'outlook.office.com')); once(); } },
+      { label: 'Outlook.com', run: () => { openUrl(outlookUrl(ev, 'outlook.live.com')); once(); } },
+      { type: 'sep' },
+      {
+        label: 'Apple Calendar or other (.ics file)', run: () => {
+          const url = URL.createObjectURL(new Blob([icsFile(ev)], { type: 'text/calendar' }));
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${(t.title || 'task').replace(/[^\w\- ]+/g, '').trim().slice(0, 40) || 'task'}.ics`;
+          document.body.append(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+          toast('Calendar file downloaded. Open it to add the event.');
+        },
+      },
+    ]);
+  }
+
   function openUrl(url) {
     if (isExtension) chrome.tabs.create({ url });
     else window.open(url, '_blank', 'noopener');
@@ -1166,7 +1282,6 @@
   // them and they follow the user to other computers.
   const canRemind = !!(syncArea && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage);
   const REMINDER_DEFAULT = { on: false, days: [1, 2, 3, 4, 5], time: '08:30' };
-  const WEEK = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
   async function getReminder() {
     try {
       const { reminder } = await syncArea.get('reminder');
@@ -1298,6 +1413,8 @@
       (help ? `<span class="choice-help">${esc(help)}</span>` : '') + `</span></label>`;
     const rem = canRemind ? await getReminder() : null;
     const badge = canRemind ? await getBadge() : null;
+    let notify = { stay: false };
+    if (canRemind) { try { notify = { stay: false, ...((await syncArea.get('notify')).notify || {}) }; } catch (e) { /* ignore */ } }
     const backups = localArea ? (await getBackups()).slice().reverse() : null;
     const archived = localArea ? (await getArchive()).length : 0;
     const doneCount = state.tasks.filter((t) => t.done).length;
@@ -1328,6 +1445,13 @@
           `<div class="test-result" id="testResult" role="status" hidden></div>` +
           `<p class="choices-note">Your browser needs to be open. If it isn’t at that time, the reminder shows up when you next open it that day.</p>` +
           `</div></fieldset>`
+        : '') +
+      (canRemind
+        ? `<fieldset class="choices"><legend>Notifications</legend>` +
+          `<label class="switch-row"><input type="checkbox" id="notifyStay" role="switch"${notify.stay ? ' checked' : ''}>` +
+          `<span class="choice-text"><span class="choice-label">Keep reminders on screen until I close them</span>` +
+          `<span class="choice-help">On a Mac, also set Chrome’s notification style to Alerts in System Settings → Notifications.</span></span></label>` +
+          `</fieldset>`
         : '') +
       (badge
         ? `<fieldset class="choices"><legend>Toolbar icon</legend>` +
@@ -1384,6 +1508,7 @@
       if (n === 'defaultSort') setDefaultSort(e.target.value);
       else if (n === 'theme') { state.theme = e.target.value; save(); applyTheme(); }
       else if (id === 'chatEmail') { state.chatEmail = e.target.value.trim(); save(); }
+      else if (id === 'notifyStay') { syncArea.set({ notify: { stay: e.target.checked } }).catch(() => toast('Couldn’t save that setting.')); }
       else if (id === 'badgeOn') { syncArea.set({ badge: { on: e.target.checked } }).catch(() => toast('Couldn’t save that setting.')); }
       else if (id === 'remOn' || n === 'remDay' || id === 'remTime') {
         const r = readReminder();
@@ -1984,6 +2109,12 @@
       const text = e.target.value.trim();
       t.steps = text ? t.steps.map((x, j) => (j === i ? { ...x, text } : x)) : t.steps.filter((_, j) => j !== i);
     }
+    else if (e.target.name === 'schedDay' || e.target.id === 'dSchedTime') {
+      const days = [...details.querySelectorAll('input[name="schedDay"]:checked')].map((x) => Number(x.value));
+      const time = $('#dSchedTime').value || '09:00';
+      ui.schedTime = { id: t.id, time }; // remembered while no day is picked yet
+      t.schedule = days.length ? cleanSchedule({ days, time, since: Date.now() }) : null;
+    }
     else if (e.target.id === 'dRemind') { t.remind = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(e.target.value) ? e.target.value : ''; }
     else if (e.target.id === 'dDue') { t.due = e.target.value || ''; if (!t.due) t.repeat = ''; }
     else if (e.target.id === 'dRepeat') {
@@ -2012,6 +2143,12 @@
         break;
       case 'clear-remind':
         if (t) { t.remind = ''; save(); render(); $('#dRemind')?.focus(); }
+        break;
+      case 'clear-sched':
+        if (t) { t.schedule = null; save(); render(); $('#dSchedTime')?.focus(); }
+        break;
+      case 'add-calendar':
+        if (t) calendarMenu(b, t);
         break;
       case 'step-toggle': case 'step-del': {
         const i = Number(b.closest('.step').dataset.i);

@@ -763,3 +763,11 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; }
   font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 5px 8px; border-radius: 6px;
   border: 1px solid var(--border); background: var(--hover); color: var(--text);
 }
+
+/* Reminder schedule + Add to calendar (details panel) */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.field.sched .day-row { margin-bottom: 8px; }
+.field.sched .row .input { max-width: 160px; }
+.cal-btn { display: inline-flex; align-items: center; gap: 8px; }
+.cal-btn .ico { width: 18px; height: 18px; }
+.cal-btn:disabled { opacity: .5; cursor: default; }

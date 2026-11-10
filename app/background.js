@@ -93,14 +93,15 @@ async function taskCounts() {
 }
 
 async function showReminder() {
+  const stay = await keepOnScreen();
   const c = await taskCounts();
   const parts = [];
   if (c.overdue) parts.push(`${c.overdue} overdue`);
   if (c.dueToday) parts.push(`${c.dueToday} due today`);
   if (c.high) parts.push(`${c.high} high priority`);
   const summary = parts.length ? parts.join(' · ') : `${c.open} open task${c.open === 1 ? '' : 's'}`;
-  // A standard notification (no requireInteraction): on macOS, notifications that stay on
-  // screen go through a separate "Alerts" helper that is often switched off.
+  // Standard notification unless "keep on screen" is on: on macOS, notifications that stay
+  // on screen go through a separate "Alerts" setting that is often switched off.
   const id = `${NOTE_PREFIX}-${Date.now()}`;
   await chrome.notifications.create(id, {
     type: 'basic',
@@ -108,8 +109,71 @@ async function showReminder() {
     title: 'Time for your CheckRow brief',
     message: `${summary}. Click to send your brief to Claude, ChatGPT, Teams and more.`,
     priority: 2,
+    ...(stay ? { requireInteraction: true } : {}),
   });
   return id;
+}
+
+// ---------- Small date helpers (match the page's) ----------
+const pad2 = (n) => String(n).padStart(2, '0');
+const toKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const parseKey = (k) => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); };
+const localStamp = (d) => `${toKey(d)}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+// Edit times, as the page records them (seconds since 2026, base 36), so a change made
+// from a notification wins over older edits when computers merge.
+const EPOCH = Date.UTC(2026, 0, 1);
+const stamp36 = () => Math.max(1, Math.floor((Date.now() - EPOCH) / 1000)).toString(36);
+
+// Repeating tasks (same rules as the page): next due date after today.
+function stepDate(d, rule, anchorDay) {
+  const n = new Date(d);
+  const daysIn = (y, m) => new Date(y, m + 1, 0).getDate();
+  if (rule === 'daily') n.setDate(n.getDate() + 1);
+  else if (rule === 'weekdays') { do n.setDate(n.getDate() + 1); while (n.getDay() === 0 || n.getDay() === 6); }
+  else if (rule === 'weekly') n.setDate(n.getDate() + 7);
+  else if (rule === 'monthly') {
+    const y = n.getFullYear() + (n.getMonth() === 11 ? 1 : 0);
+    const m = (n.getMonth() + 1) % 12;
+    return new Date(y, m, Math.min(anchorDay, daysIn(y, m)));
+  } else if (rule === 'yearly') {
+    const y = n.getFullYear() + 1;
+    return new Date(y, n.getMonth(), Math.min(anchorDay, daysIn(y, n.getMonth())));
+  }
+  return n;
+}
+function nextDue(rule, due) {
+  const base = due || toKey(new Date());
+  const anchor = parseKey(base).getDate();
+  const today = toKey(new Date());
+  let d = stepDate(parseKey(base), rule, anchor);
+  if (base <= today) while (toKey(d) <= today) d = stepDate(d, rule, anchor);
+  return toKey(d);
+}
+function shiftRemind(remind, oldDue, newDue) {
+  if (!remind || !oldDue || !newDue) return undefined;
+  const [day, time] = remind.split('T');
+  const d = parseKey(day);
+  d.setDate(d.getDate() + Math.round((parseKey(newDue) - parseKey(oldDue)) / 86400000));
+  return `${toKey(d)}T${time}`;
+}
+
+// ---------- Reminder schedules on tasks ("Mon, Wed at 9:00") ----------
+// "w": { d: [days 0-6], t: 'HH:MM', s: ms when set }. Only times after it was set count,
+// so setting a schedule at 10:00 for 9:00 doesn't fire straight away.
+const validSchedule = (w) => w && Array.isArray(w.d) && w.d.length && /^\d{2}:\d{2}$/.test(w.t);
+function nextScheduled(w, from = new Date()) {
+  return validSchedule(w) ? nextOccurrence({ days: w.d, time: w.t }, from) : null;
+}
+function lastScheduled(w, now = new Date()) {
+  if (!validSchedule(w)) return null;
+  for (let i = 0; i < 8; i += 1) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    if (!w.d.includes(d.getDay())) continue;
+    const t = at(d, w.t);
+    if (t <= now) return t.getTime() >= (w.s || 0) ? t : null;
+  }
+  return null;
 }
 
 // ---------- Reminders on single tasks ----------
@@ -122,9 +186,16 @@ async function syncTaskAlarms() {
   const now = Date.now();
   const want = new Map();
   for (const [k, v] of Object.entries(all)) {
-    if (!k.startsWith('t:') || !v || v.x || typeof v.m !== 'string') continue;
-    const when = new Date(v.m).getTime();
-    if (when > now && shown[k.slice(2)] !== v.m) want.set(TASK_ALARM + k.slice(2), when);
+    if (!k.startsWith('t:') || !v || v.x) continue;
+    const id = k.slice(2);
+    const times = [];
+    if (typeof v.m === 'string') {
+      const when = new Date(v.m).getTime();
+      if (when > now && shown[id] !== v.m) times.push(when);
+    }
+    const sched = nextScheduled(v.w);
+    if (sched) times.push(sched.getTime());
+    if (times.length) want.set(TASK_ALARM + id, Math.min(...times));
   }
   for (const a of await chrome.alarms.getAll()) {
     if (!a.name.startsWith(TASK_ALARM)) continue;
@@ -141,13 +212,23 @@ async function showDueTaskReminders() {
   const now = Date.now();
   const due = [];
   for (const [k, v] of Object.entries(all)) {
-    if (!k.startsWith('t:') || !v || v.x || typeof v.m !== 'string') continue;
+    if (!k.startsWith('t:') || !v || v.x) continue;
     const id = k.slice(2);
-    const when = new Date(v.m).getTime();
-    if (when <= now && when > now - CATCH_UP_MS && shown[id] !== v.m) { due.push([id, v]); shown[id] = v.m; }
+    let hit = false;
+    if (typeof v.m === 'string') {
+      const when = new Date(v.m).getTime();
+      if (when <= now && when > now - CATCH_UP_MS && shown[id] !== v.m) { hit = true; shown[id] = v.m; }
+    }
+    // Schedule: the latest scheduled time that has passed (within a day), once each.
+    const last = lastScheduled(v.w, new Date(now));
+    if (last && last.getTime() > now - CATCH_UP_MS) {
+      const key = `${toKey(last)} ${v.w.t}`;
+      if (shown[`${id}~w`] !== key) { hit = true; shown[`${id}~w`] = key; }
+    }
+    if (hit) due.push([id, v]);
   }
   // Forget tasks that no longer exist.
-  for (const id of Object.keys(shown)) if (!all[`t:${id}`]) delete shown[id];
+  for (const key of Object.keys(shown)) if (!all[`t:${key.split('~')[0]}`]) delete shown[key];
   if (due.length || Object.keys(shown).length !== Object.keys(all.remShown || {}).length) {
     await chrome.storage.sync.set({ remShown: shown });
   }
@@ -166,8 +247,56 @@ async function showTaskReminder(id, v) {
     message: [dueText, steps].filter(Boolean).join(' · ') || 'CheckRow reminder',
     contextMessage: 'CheckRow reminder · Click to open',
     priority: 2,
+    buttons: [{ title: 'Snooze 1 hour' }, { title: 'Mark complete' }],
+    ...((await keepOnScreen()) ? { requireInteraction: true } : {}),
   });
 }
+
+// Setting: keep reminders on screen until closed (off by default; on a Mac this needs
+// Chrome's notification style set to "Alerts" in System Settings).
+async function keepOnScreen() {
+  const { notify } = await chrome.storage.sync.get('notify');
+  return !!(notify && notify.stay);
+}
+
+// Buttons on a task reminder: Snooze 1 hour, or Mark complete. Both edit the task in
+// sync directly, so it works even when CheckRow isn't open.
+async function snoozeTask(id) {
+  const key = `t:${id}`;
+  const { [key]: v } = await chrome.storage.sync.get(key);
+  if (!v || v.x) return;
+  const m = localStamp(new Date(Date.now() + 3600000));
+  await chrome.storage.sync.set({ [key]: { ...v, m, u: { ...(v.u || {}), m: stamp36() } } });
+}
+async function completeTask(id) {
+  const key = `t:${id}`;
+  const { [key]: v } = await chrome.storage.sync.get(key);
+  if (!v || v.x) return;
+  const now = Date.now();
+  const u = { ...(v.u || {}), x: stamp36() };
+  const done = { ...v, x: 1, c: now, u };
+  const out = { [key]: done };
+  if (v.r && v.d) {
+    // Repeating: the next copy, like completing it in CheckRow.
+    const due = nextDue(v.r, v.d);
+    const next = { ...v, d: due, a: now };
+    delete next.x; delete next.c; delete next.u;
+    const m = shiftRemind(v.m, v.d, due);
+    if (m) next.m = m; else delete next.m;
+    if (Array.isArray(v.k)) next.k = v.k.map((s) => [s[0]]);
+    out[`t:${now.toString(36)}${Math.random().toString(36).slice(2, 8)}`] = next;
+    delete done.r;
+    u.r = u.x;
+  }
+  await chrome.storage.sync.set(out);
+}
+
+chrome.notifications.onButtonClicked.addListener((noteId, index) => {
+  if (!noteId.startsWith(TASK_NOTE)) return;
+  chrome.notifications.clear(noteId);
+  const id = noteId.slice(TASK_NOTE.length).replace(/-\d+$/, '');
+  (index === 0 ? snoozeTask(id) : completeTask(id)).catch((e) => console.error('CheckRow: notification action failed', e));
+});
 
 // ---------- Right-click "Add to CheckRow" ----------
 function setUpMenu() {
