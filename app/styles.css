@@ -771,3 +771,9 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; }
 .cal-btn { display: inline-flex; align-items: center; gap: 8px; }
 .cal-btn .ico { width: 18px; height: 18px; }
 .cal-btn:disabled { opacity: .5; cursor: default; }
+
+/* Reminder: Off / Once / Repeating */
+.field.remind .remind-row { margin-top: 10px; }
+.field.remind .day-row + .row { margin-top: 8px; }
+.field.remind .row .input { max-width: 240px; }
+.field.remind .seg-opt .ico { width: 15px; height: 15px; }

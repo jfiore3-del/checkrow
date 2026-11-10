@@ -148,6 +148,12 @@
     const days = [...new Set(x.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
     return days.length ? { days, time: x.time, since: Number(x.since) || 0 } : null;
   }
+  // Which reminder the task uses; a mode picked but not filled in yet is remembered in ui.
+  function remindMode(t) {
+    if (t.schedule) return 'repeat';
+    if (t.remind) return 'once';
+    return ui.remindMode && ui.remindMode.id === t.id ? ui.remindMode.mode : 'off';
+  }
   const fmtTime = (hm) => { const [h, m] = hm.split(':').map(Number); return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); };
   function scheduleLabel(sc) {
     const d = sc.days.join();
@@ -935,17 +941,26 @@
       (t.done ? '' : `<div class="field"><label for="dRepeat">Repeat</label><span class="select-wrap block"><select id="dRepeat" class="input select">` +
         ['', ...REPEATS].map((r) => `<option value="${r}"${(t.repeat || '') === r ? ' selected' : ''}>${esc(repeatLabel(r, t.due))}</option>`).join('') +
         `</select>${icon('chevron', 'select-chev')}</span></div>`) +
-      (t.done ? '' : `<div class="field"><label for="dRemind">Remind me</label><div class="row">` +
-        `<input id="dRemind" class="input" type="datetime-local" value="${esc(t.remind)}">` +
-        (t.remind ? `<button type="button" class="text-btn" data-action="clear-remind">Clear</button>` : '') +
-        `</div>${t.remind && remindPast(t.remind) ? `<p class="field-help">This time has passed.</p>` : `<p class="field-help">A notification pops up at this time. Your browser needs to be open; if it isn’t, it shows when you next open it.</p>`}</div>` +
-        `<fieldset class="field sched"><legend>Remind me every</legend>` +
-        `<div class="day-row compact" role="group" aria-label="Days">` +
-        WEEK.map(([d, label]) => `<label class="day"><input type="checkbox" name="schedDay" value="${d}"${t.schedule && t.schedule.days.includes(d) ? ' checked' : ''}><span>${label}</span></label>`).join('') +
-        `</div><div class="row"><label class="sr-only" for="dSchedTime">Time</label>` +
-        `<input id="dSchedTime" class="input" type="time" value="${esc(t.schedule ? t.schedule.time : (ui.schedTime && ui.schedTime.id === t.id ? ui.schedTime.time : '09:00'))}">` +
-        (t.schedule ? `<button type="button" class="text-btn" data-action="clear-sched">Clear</button>` : '') +
-        `</div><p class="field-help">${t.schedule ? `${esc(scheduleLabel(t.schedule))}, until the task is done.` : 'Pick days for a reminder that repeats until the task is done.'}</p></fieldset>` +
+      (t.done ? '' : (() => {
+        // One Reminder control: Off, Once (a date and time) or Repeating (days and a time).
+        const mode = remindMode(t);
+        const opts = [['off', 'Off'], ['once', 'Once'], ['repeat', 'Repeating']];
+        return `<fieldset class="field remind"><legend>Reminder</legend><div class="seg">` +
+          opts.map(([v, l]) => `<label class="seg-opt"><input type="radio" name="dRemindMode" value="${v}"${mode === v ? ' checked' : ''}><span>${v === 'off' ? '' : icon(v === 'once' ? 'bell' : 'repeat')}${l}</span></label>`).join('') +
+          `</div>` +
+          (mode === 'once'
+            ? `<div class="row remind-row"><label class="sr-only" for="dRemind">Date and time</label><input id="dRemind" class="input" type="datetime-local" value="${esc(t.remind)}"></div>` +
+              `<p class="field-help">${t.remind && remindPast(t.remind) ? 'This time has passed.' : 'A notification pops up at this time. Your browser needs to be open; if it isn’t, it shows when you next open it.'}</p>`
+            : '') +
+          (mode === 'repeat'
+            ? `<div class="day-row compact remind-row" role="group" aria-label="Days">` +
+              WEEK.map(([d, label]) => `<label class="day"><input type="checkbox" name="schedDay" value="${d}"${t.schedule && t.schedule.days.includes(d) ? ' checked' : ''}><span>${label}</span></label>`).join('') +
+              `</div><div class="row"><label class="sr-only" for="dSchedTime">Time</label>` +
+              `<input id="dSchedTime" class="input" type="time" value="${esc(t.schedule ? t.schedule.time : (ui.schedTime && ui.schedTime.id === t.id ? ui.schedTime.time : '09:00'))}"></div>` +
+              `<p class="field-help">${t.schedule ? `${esc(scheduleLabel(t.schedule))}, until the task is done.` : 'Pick the days. It repeats until the task is done.'}</p>`
+            : '') +
+          `</fieldset>`;
+      })() +
         `<div class="field"><button type="button" class="btn cal-btn" data-action="add-calendar"${calendarEvent(t) ? '' : ' disabled'}>${icon('calendar')}Add to calendar</button>` +
         `<p class="field-help">${calendarEvent(t) ? 'Your calendar can remind you on your phone, even when your computer is off.' : 'Set a due date or a reminder first.'}</p></div>`) +
       `<fieldset class="field"><legend>Priority</legend><div class="seg">` +
@@ -1924,7 +1939,7 @@
       } break;
       case 'star': if (t) { t.starred = !t.starred; save(); render(); } break;
       case 'open': if (t) openDetails(t.id); break;
-      case 'open-remind': if (t) openDetails(t.id, '#dRemind'); break;
+      case 'open-remind': if (t) openDetails(t.id, t.remind && !t.schedule ? '#dRemind' : t.schedule ? '#dSchedTime' : 'input[name="dRemindMode"]:checked'); break;
       case 'open-steps': if (t) openDetails(t.id, t.steps.length ? '#dStep-0' : '#dStepAdd'); break;
       case 'toggle-done':
         state.showCompleted[state.view] = !doneOpen();
@@ -1950,8 +1965,8 @@
           dueMenu(b, t.due, (v) => { t.due = v; if (!v) t.repeat = ''; save(); render(); refocus(t.id, action, kb); }, {
             value: t.repeat,
             apply: (r) => { t.repeat = r; if (r && !t.due) t.due = todayKey(); save(); render(); refocus(t.id, action, kb); },
-            remindValue: t.remind,
-            remind: () => openDetails(t.id, '#dRemind'),
+            remindValue: t.remind || t.schedule,
+            remind: () => openDetails(t.id, t.remind ? '#dRemind' : t.schedule ? '#dSchedTime' : 'input[name="dRemindMode"]:checked'),
           });
         } else if (action === 'pick-pri' && t) {
           priorityMenu(b, t.priority, (p) => { t.priority = p; save(); render(); refocus(t.id, action, kb); });
@@ -2108,6 +2123,15 @@
       const i = Number(e.target.closest('.step').dataset.i);
       const text = e.target.value.trim();
       t.steps = text ? t.steps.map((x, j) => (j === i ? { ...x, text } : x)) : t.steps.filter((_, j) => j !== i);
+    }
+    else if (e.target.name === 'dRemindMode') {
+      const mode = e.target.value;
+      ui.remindMode = { id: t.id, mode };
+      if (mode !== 'once') t.remind = '';
+      if (mode !== 'repeat') t.schedule = null;
+      save(); renderMain(); renderDetails();
+      (mode === 'once' ? $('#dRemind') : mode === 'repeat' ? details.querySelector('input[name="schedDay"]') : details.querySelector('input[name="dRemindMode"]:checked'))?.focus();
+      return;
     }
     else if (e.target.name === 'schedDay' || e.target.id === 'dSchedTime') {
       const days = [...details.querySelectorAll('input[name="schedDay"]:checked')].map((x) => Number(x.value));

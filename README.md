@@ -9,9 +9,9 @@ A clean, Google Workspace–style to-do list that lives in the Chrome side panel
 - **Tasks**: add with Enter, edit titles inline, check off, star and delete. Long names wrap to two lines and expand on hover. The ⋮ on each row slides out the task's options.
 - **Inline due dates and priorities**: set them while adding a task, and change them right on the row (click the chip, or the calendar and flag in the ⋮ options).
 - **Repeating tasks**: daily, every weekday, weekly, monthly or yearly, from the date menu or the details panel. Completing one creates the next.
-- **Details panel**: notes, a checklist of steps, due date, repeat, a reminder, priority (Low / Medium / High) and moving a task to another list.
+- **Details panel**: notes, a checklist of steps, due date, repeat, reminder (off, once or repeating), priority (Low / Medium / High) and moving a task to another list.
 - **Checklists**: break a task into steps; the row shows progress (2/5).
-- **Reminder schedules**: "Remind me every" Mon, Wed… at a time, until the task is done.
+- **One Reminder control**: Off, *Once* (a date and time) or *Repeating* (chosen days at a time, until the task is done).
 - **Reminder buttons**: notifications have *Snooze 1 hour* and *Mark complete*, and can stay on screen until closed (Settings → Notifications).
 - **Add to calendar**: send a task's reminder or due date to Google Calendar, Outlook, or any calendar app (.ics), so your phone can remind you even when your computer is off.
 - **Reminders on a task**: pick a date and time and a notification pops up then (or when you next open your browser, up to a day late). Click it to open the task. Only one of your computers shows it.
