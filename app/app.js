@@ -911,7 +911,8 @@
     let keep = null;
     if (a && details.contains(a)) {
       if (a.id) keep = `#${a.id}`;
-      else if (a.name) keep = `input[name="${a.name}"]:checked`;
+      else if (a.name) keep = a.type === 'checkbox' ? `input[name="${a.name}"][value="${a.value}"]` : `input[name="${a.name}"]:checked`;
+      else if (a.dataset && a.dataset.action) keep = `[data-action="${a.dataset.action}"]`;
     }
     const created = new Date(t.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     details.hidden = false;
@@ -1596,12 +1597,19 @@
         row.className = 'menu-date';
         row.innerHTML = `<span>${esc(it.label)}</span><input type="date" class="input" value="${esc(it.value || '')}">`;
         const input = row.querySelector('input');
-        input.addEventListener('change', () => {
-          // Ignore partial years while typing (e.g. "0202"); the picker always gives a full date.
-          if (!input.value || Number(input.value.slice(0, 4)) < 1970) return;
-          closeMenu();
-          it.run(input.value);
+        // The calendar picker applies right away; typing applies on Enter or when leaving
+        // the box (applying on each keystroke would close the menu mid-edit).
+        let typing = false;
+        let done = false;
+        const valid = () => input.value && Number(input.value.slice(0, 4)) >= 1970;
+        const apply = () => { if (done || !valid()) return; done = true; closeMenu(); it.run(input.value); };
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); apply(); return; }
+          if (e.key === 'Escape') { done = true; return; } // cancel
+          if (e.key.length === 1 || e.key === 'Backspace' || e.key.startsWith('Arrow')) typing = true;
         });
+        input.addEventListener('change', () => { if (!typing) apply(); });
+        input.addEventListener('blur', () => { if (typing && input.value !== (it.value || '')) apply(); });
         menuEl.appendChild(row);
         continue;
       }
@@ -2099,6 +2107,19 @@
     renderDetails();
     $('#dStepAdd')?.focus();
   }
+  const TYPED_BOXES = ['dDue', 'dRemind', 'dSchedTime'];
+  details.addEventListener('focusin', (e) => { if (TYPED_BOXES.includes(e.target.id)) ui.typingIn = e.target.id; });
+  details.addEventListener('focusout', (e) => {
+    if (!TYPED_BOXES.includes(e.target.id)) return;
+    if (ui.typingIn === e.target.id) ui.typingIn = null;
+    if (!ui.detailsStale) return;
+    // After the browser has moved focus, redraw (focus is restored to where it went).
+    setTimeout(() => {
+      if (TYPED_BOXES.includes(document.activeElement && document.activeElement.id)) return;
+      ui.detailsStale = false;
+      renderDetails();
+    });
+  });
   details.addEventListener('keydown', (e) => {
     const t = taskById(ui.openTaskId);
     if (!t) return;
@@ -2139,8 +2160,16 @@
       ui.schedTime = { id: t.id, time }; // remembered while no day is picked yet
       t.schedule = days.length ? cleanSchedule({ days, time, since: Date.now() }) : null;
     }
-    else if (e.target.id === 'dRemind') { t.remind = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(e.target.value) ? e.target.value : ''; }
-    else if (e.target.id === 'dDue') { t.due = e.target.value || ''; if (!t.due) t.repeat = ''; }
+    else if (e.target.id === 'dRemind') {
+      const v = e.target.value;
+      if (v && Number(v.slice(0, 4)) < 1970) return; // half-typed year
+      t.remind = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) ? v : '';
+    }
+    else if (e.target.id === 'dDue') {
+      const v = e.target.value;
+      if (v && Number(v.slice(0, 4)) < 1970) return; // half-typed year
+      t.due = v || ''; if (!t.due) t.repeat = '';
+    }
     else if (e.target.id === 'dRepeat') {
       t.repeat = REPEATS.includes(e.target.value) ? e.target.value : '';
       if (t.repeat && !t.due) t.due = todayKey();
@@ -2154,6 +2183,16 @@
     save();
     renderSidebar();
     renderMain();
+    // Still typing in a date or time box: redrawing now would replace the box and lose
+    // the rest of what's being typed. Redraw once focus leaves it.
+    // (document.activeElement isn't reliable here: Chrome briefly reports nothing focused
+    // while a date/time box moves between its parts, so track entering/leaving instead.)
+    if (TYPED_BOXES.includes(e.target.id) && ui.typingIn === e.target.id) {
+      ui.detailsStale = true;
+      // Keep the Repeat choices' wording in step with the date ("Monthly on the 31st").
+      if (e.target.id === 'dDue') for (const o of details.querySelectorAll('#dRepeat option')) o.textContent = repeatLabel(o.value, t.due);
+      return;
+    }
     renderDetails();
   });
   details.addEventListener('click', (e) => {
