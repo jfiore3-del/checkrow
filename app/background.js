@@ -299,12 +299,20 @@ chrome.notifications.onButtonClicked.addListener((noteId, index) => {
 });
 
 // ---------- Right-click "Add to CheckRow" ----------
+let menuReady = null; // once per worker start, however many callers ask
 function setUpMenu() {
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({ id: MENU_ID, title: 'Add “%s” to CheckRow', contexts: ['selection'] });
-    chrome.contextMenus.create({ id: `${MENU_ID}-link`, title: 'Add link to CheckRow', contexts: ['link'] });
-    chrome.contextMenus.create({ id: `${MENU_ID}-page`, title: 'Add this page to CheckRow', contexts: ['page'] });
+  if (menuReady) return menuReady;
+  const quiet = () => void chrome.runtime.lastError;
+  menuReady = new Promise((resolve) => {
+    chrome.contextMenus.removeAll(() => {
+      quiet();
+      chrome.contextMenus.create({ id: MENU_ID, title: 'Add “%s” to CheckRow', contexts: ['selection'] }, quiet);
+      chrome.contextMenus.create({ id: `${MENU_ID}-link`, title: 'Add link to CheckRow', contexts: ['link'] }, quiet);
+      chrome.contextMenus.create({ id: `${MENU_ID}-page`, title: 'Add this page to CheckRow', contexts: ['page'] }, quiet);
+      resolve();
+    });
   });
+  return menuReady;
 }
 
 const tidy = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -393,9 +401,13 @@ async function scheduleDaily() {
   await chrome.alarms.create(DAILY, { when: next.getTime() });
 }
 
-async function dailyChores() {
-  try { await backupIfDue(); } catch (e) { console.error('CheckRow: backup failed', e); }
-  try { await updateBadge(); } catch (e) { console.error('CheckRow: badge failed', e); }
+let choresQueue = Promise.resolve(); // one at a time, so two callers can't make two backups
+function dailyChores() {
+  choresQueue = choresQueue.then(async () => {
+    try { await backupIfDue(); } catch (e) { console.error('CheckRow: backup failed', e); }
+    try { await updateBadge(); } catch (e) { console.error('CheckRow: badge failed', e); }
+  });
+  return choresQueue;
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -426,6 +438,20 @@ chrome.runtime.onStartup.addListener(async () => {
   await scheduleDaily();
   await dailyChores();
 });
+
+// Every time the worker starts, make sure the setup exists. onInstalled / onStartup
+// don't always fire (for example after some updates), and the menus and the midnight
+// job must never go missing.
+async function ensureSetup() {
+  setUpMenu();
+  if (!(await chrome.alarms.get(DAILY))) {
+    await scheduleDaily();
+    await dailyChores();
+  }
+  if ((await getReminder()).on && !(await chrome.alarms.get(ALARM))) await schedule();
+  await syncTaskAlarms();
+}
+ensureSetup().catch((e) => console.error('CheckRow: setup check failed', e));
 
 let badgeTimer = 0;
 chrome.storage.onChanged.addListener((changes, area) => {

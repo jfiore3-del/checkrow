@@ -955,7 +955,7 @@
       `<div class="field"><label for="dList">List</label><span class="select-wrap block"><select id="dList" class="input select">` +
       state.lists.map((l) => `<option value="${esc(l.id)}"${l.id === t.listId ? ' selected' : ''}>${esc(l.name)}</option>`).join('') +
       `</select>${icon('chevron', 'select-chev')}</span></div>` +
-      `<p class="created">Created ${esc(created)}</p>` +
+      (t.createdAt > 1577836800000 ? `<p class="created">Created ${esc(created)}</p>` : '') + // hide if the date is missing
       `<div class="details-foot">` +
       `<button type="button" class="btn" data-action="details-done">${icon('check')}${t.done ? 'Mark not complete' : 'Mark complete'}</button>` +
       `<button type="button" class="btn danger" data-action="delete-task">${icon('trash')}Delete</button>` +
