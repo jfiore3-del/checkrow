@@ -6,9 +6,10 @@ CheckRow is a to-do list extension for Google Chrome. It has no servers: the dev
 
 ## What CheckRow stores
 
-- Your lists and tasks (titles, notes, due dates, repeat settings, priorities, stars and completion) and your settings (default sort order, theme, toolbar count, and daily reminder days and time).
+- Your lists and tasks (titles, notes, checklist steps, due dates, repeat settings, reminder times, priorities, stars and completion) and your settings (default sort order, theme, toolbar count, and daily reminder days and time).
 - These are kept with the browser's extension storage. If you're signed in to your browser with sync turned on, the browser syncs them across your computers through your browser account, under Google's privacy policy. If sync is off, they stay on that computer.
 - If you enter a work email in Settings, it is stored only on that computer and is not synced.
+- When you choose **Add to CheckRow** from the right-click menu, CheckRow saves the text you highlighted (or the link or page title) and the address of that page or link as a task. It reads nothing from the page unless you choose this, and it's stored like any other task.
 - Daily backups (the last 7 days) and the archive of tasks completed more than 30 days ago are stored only on that computer, in the browser's extension storage. They are not synced or sent anywhere.
 
 ## What CheckRow sends, and when
@@ -23,7 +24,7 @@ Once your text reaches one of those services, that service's privacy policy appl
 
 ## What CheckRow doesn't do
 
-No analytics, ads or tracking. It doesn't read the pages you visit or your browsing history, has no accounts or sign-ins, and runs no code from the internet. The daily reminder is optional and created entirely in your browser.
+No analytics, ads or tracking. It doesn't read the pages you visit or your browsing history (only the text or link you choose to add from the right-click menu), has no accounts or sign-ins, and runs no code from the internet. The daily reminder is optional and created entirely in your browser.
 
 ## Your choices
 

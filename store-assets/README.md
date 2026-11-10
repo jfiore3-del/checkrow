@@ -1,13 +1,13 @@
 # CheckRow store graphics
 
-Everything needed for the image sections of the Chrome Web Store listing. All screenshots show the real extension (version 0.6.1) with sample tasks.
+Everything needed for the image sections of the Chrome Web Store listing. All screenshots show the real extension (version 0.8.0) with sample tasks.
 
 ## Chrome Web Store (Developer Dashboard → Store listing)
 
 | Slot | File | Size |
 | --- | --- | --- |
 | Store icon | Comes from the extension package (`app/icons/checkrow-128.png`, same as `store-icon-128.png` here) | 128×128, 96×96 artwork + transparent padding |
-| Screenshots (up to 5) | `screenshots/screenshot-1` … `screenshot-5` | 1280×800 |
+| Screenshots (up to 5) | `screenshots/screenshot-1-side-panel` … `screenshot-5-sync-dark` | 1280×800 |
 | Small promo tile | `promo/promo-small-440x280.png` | 440×280 |
 | Marquee promo tile (optional) | `promo/promo-marquee-1400x560.png` | 1400×560 |
 

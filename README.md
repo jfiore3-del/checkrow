@@ -9,13 +9,18 @@ A clean, Google Workspace–style to-do list that lives in the Chrome side panel
 - **Tasks**: add with Enter, edit titles inline, check off, star and delete. Long names wrap to two lines and expand on hover. The ⋮ on each row slides out the task's options.
 - **Inline due dates and priorities**: set them while adding a task, and change them right on the row (click the chip, or the calendar and flag in the ⋮ options).
 - **Repeating tasks**: daily, every weekday, weekly, monthly or yearly, from the date menu or the details panel. Completing one creates the next.
-- **Details panel**: notes, due date, priority (Low / Medium / High) and moving a task to another list.
+- **Details panel**: notes, a checklist of steps, due date, repeat, a reminder, priority (Low / Medium / High) and moving a task to another list.
+- **Checklists**: break a task into steps; the row shows progress (2/5).
+- **Reminders on a task**: pick a date and time and a notification pops up then (or when you next open your browser, up to a day late). Click it to open the task. Only one of your computers shows it.
 - **Sorting**: Priority (the default), Date, or My order (drag to reorder). Change the default for every list in **Settings**, or sort one list differently from the menu at the top of that list.
 - **AI Brief**: one click sends your open tasks (overdue, due today, coming up, by priority) to Claude, ChatGPT, Gemini or Grok for a morning brief. The brief is copied to your clipboard and the assistant opens in a new tab, pre-filled where the site supports it. You can edit the brief first or limit it to one list.
 - **Send to chat**: from AI Brief, send your task list to Teams, Slack or Google Chat. It's copied for a quick paste, Add your work email in Settings and Teams opens a chat with yourself with the list already typed, while Google Chat and Gemini open in your work Google account rather than a personal one.
 - **Daily reminder**: pick your work days and a time. A notification pops up with a quick summary (overdue, due today, high priority); click it to open AI Brief. If your browser is closed at that time, it reminds you when you next open it that day. Only one of your computers shows it.
 - **Toolbar count**: the CheckRow icon shows how many tasks are overdue or due today (red when something is overdue). Can be turned off in Settings.
 - **Settings**: daily reminder, toolbar count, backups and archive, default sort order, work email and theme. The default sort syncs to your other computers.
+- **Right-click to add**: highlight text, or right-click a link or page, and choose *Add to CheckRow*. The page link goes in the task's details.
+- **Keyboard shortcut**: Alt+Shift+K opens CheckRow (change it at chrome://extensions/shortcuts).
+- **Safe with two computers**: each part of a task remembers when it last changed, so editing the name on one computer and the date on another keeps both, even if they sync late.
 - **Search** across titles and notes.
 - **Undo** for completing, deleting and clearing tasks.
 - **Light and dark themes**, following the system by default.

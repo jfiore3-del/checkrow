@@ -57,6 +57,8 @@
     repeat: '<path d="M16.5 3l3 3-3 3"/><path d="M4.5 11.5V10a4 4 0 0 1 4-4h11"/><path d="M7.5 21l-3-3 3-3"/><path d="M19.5 12.5V14a4 4 0 0 1-4 4h-11"/>',
     archive: '<rect x="3.5" y="4.5" width="17" height="4.5" rx="1"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3.5 4v4h4M12 7.5V12l3 2"/>',
+    bell: '<path d="M6 16.5V11a6 6 0 1 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    steps: '<path d="M4 6.5l1.5 1.5L8.5 5M4 12.5l1.5 1.5 3-3M4 18.5l1.5 1.5 3-3M11.5 6.5H20M11.5 12.5H20M11.5 18.5H20"/>',
     party: '<path d="M4 20l4.5-12 7.5 7.5z"/><path d="M14 4.5c0 1.5 1 2 2 2M19.5 9.5c-1.5 0-2 1-2 2M15 9l4-4M10.5 3.5l.5 1.5M20.5 13.5l-1.5-.5"/>',
   };
   const icon = (name, cls = '') => (
@@ -69,6 +71,14 @@
   const toKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const todayKey = () => toKey(new Date());
   const parseKey = (k) => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); };
+  // "Today 2:00 PM", "Tue, Nov 17 9:30 AM"
+  function fmtRemind(r) {
+    const [day, time] = r.split('T');
+    const [h, m] = time.split(':').map(Number);
+    const at = new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return `${fmtDue(day)} ${at}`;
+  }
+  const remindPast = (r) => !!r && new Date(r) <= new Date();
   function fmtDue(k) {
     const d = parseKey(k);
     const t = parseKey(todayKey());
@@ -85,6 +95,9 @@
     const k = todayKey();
     return t.due < k ? 'overdue' : t.due === k ? 'due-today' : '';
   }
+
+  const STEPS_MAX = 30;   // checklist steps per task
+  const STEP_MAX = 120;   // characters per step (keeps a task inside one 8 KB sync item)
 
   // ---------- Repeating tasks ----------
   // A repeating task has a due date. Completing it creates the next one, due on the
@@ -127,6 +140,16 @@
     return toKey(d);
   }
 
+  // A reminder on a repeating task moves with it: same time, same days before the due date.
+  function shiftRemind(remind, oldDue, newDue) {
+    if (!remind || !oldDue || !newDue) return '';
+    const [day, time] = remind.split('T');
+    const shift = Math.round((parseKey(newDue) - parseKey(oldDue)) / 86400000);
+    const d = parseKey(day);
+    d.setDate(d.getDate() + shift);
+    return `${toKey(d)}T${time}`;
+  }
+
   // ---------- State ----------
   function freshState() {
     const id = uid();
@@ -150,6 +173,14 @@
         priority: [0, 1, 2, 3].includes(t.priority) ? t.priority : 0,
         starred: !!t.starred,
         repeat: REPEATS.includes(t.repeat) && /^\d{4}-\d{2}-\d{2}$/.test(t.due) ? t.repeat : '',
+        remind: typeof t.remind === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(t.remind) ? t.remind : '',
+        steps: Array.isArray(t.steps)
+          ? t.steps.filter((x) => x && typeof x.text === 'string').slice(0, STEPS_MAX)
+            .map((x) => ({ text: x.text.slice(0, STEP_MAX), done: !!x.done }))
+          : [],
+        edits: t.edits && typeof t.edits === 'object'
+          ? Object.fromEntries(Object.entries(t.edits).filter(([f, v]) => FIELDS[f] && Number.isFinite(v) && v > 0))
+          : {},
         done: !!t.done,
         completedAt: Number(t.completedAt) || 0,
         createdAt: Number(t.createdAt) || Date.now(),
@@ -188,6 +219,7 @@
   }
   // Every change is written to this device right away, then synced (extension only).
   function save() {
+    stampEdits();
     saveLocal();
     if (syncArea) {
       try { localStorage.setItem(DIRTY_KEY, '1'); } catch (e) { /* ignore */ }
@@ -215,15 +247,61 @@
     l: t.listId, t: t.title,
     n: t.notes || undefined, d: t.due || undefined, p: t.priority || undefined,
     s: t.starred ? 1 : undefined, x: t.done ? 1 : undefined, c: t.completedAt || undefined,
-    r: t.repeat || undefined,
+    r: t.repeat || undefined, m: t.remind || undefined,
+    k: t.steps && t.steps.length ? t.steps.map((x) => (x.done ? [x.text, 1] : [x.text])) : undefined,
+    u: t.edits && Object.keys(t.edits).length ? Object.fromEntries(Object.entries(t.edits).map(([f, v]) => [f, v.toString(36)])) : undefined,
     a: t.createdAt, o: t.order,
   });
   const unpackTask = (id, v) => ({
     id, listId: v.l, title: v.t || '', notes: v.n || '', due: v.d || '',
     priority: v.p || 0, starred: !!v.s, done: !!v.x, completedAt: v.c || 0,
     repeat: REPEATS.includes(v.r) && v.d ? v.r : '',
+    remind: typeof v.m === 'string' ? v.m : '',
+    steps: Array.isArray(v.k) ? v.k.filter(Array.isArray).map(([text, done]) => ({ text: String(text || ''), done: !!done })) : [],
+    edits: v.u && typeof v.u === 'object'
+      ? Object.fromEntries(Object.entries(v.u).map(([f, x]) => [f, parseInt(x, 36)]).filter(([f, x]) => FIELDS[f] && x > 0))
+      : {},
     createdAt: v.a || Date.now(), order: v.o || 0,
   });
+
+  // ---------- Merging edits from two computers ----------
+  // Each task remembers when each part of it was last changed (seconds since 2026,
+  // only for parts that have been edited). When two computers change the same task
+  // before syncing, each part keeps whichever change is newer, so editing the name on
+  // one computer and the date on another keeps both.
+  const FIELDS = {
+    l: ['listId'], t: ['title'], n: ['notes'], d: ['due'], p: ['priority'], s: ['starred'],
+    x: ['done', 'completedAt'], r: ['repeat'], m: ['remind'], k: ['steps'], o: ['order'],
+  };
+  const EPOCH = Date.UTC(2026, 0, 1);
+  const stampNow = () => Math.max(1, Math.floor((Date.now() - EPOCH) / 1000));
+  const fieldsOf = (t) => Object.fromEntries(Object.entries(FIELDS).map(([f, props]) => [f, canon(props.map((p) => t[p] ?? null))]));
+  const known = new Map(); // task id -> fieldsOf() as last saved or received
+  function rememberAll() { known.clear(); for (const t of state.tasks) known.set(t.id, fieldsOf(t)); }
+  // Note the time of every part changed since the last save.
+  function stampEdits() {
+    const now = stampNow();
+    const ids = new Set();
+    for (const t of state.tasks) {
+      ids.add(t.id);
+      const cur = fieldsOf(t);
+      const prev = known.get(t.id);
+      if (prev) for (const f in FIELDS) if (cur[f] !== prev[f]) (t.edits ||= {})[f] = now;
+      known.set(t.id, cur);
+    }
+    for (const id of known.keys()) if (!ids.has(id)) known.delete(id);
+  }
+  // Combine two versions of one task, part by part. Returns the merged task.
+  function mergeTask(local, remote) {
+    const out = { ...remote, edits: { ...(remote.edits || {}) } };
+    for (const [f, props] of Object.entries(FIELDS)) {
+      const lt = (local.edits && local.edits[f]) || 0;
+      const rt = (remote.edits && remote.edits[f]) || 0;
+      if (lt > rt) { for (const p of props) out[p] = local[p]; out.edits[f] = lt; }
+    }
+    return out;
+  }
+  const newerLocally = (local, remote) => Object.keys(FIELDS).some((f) => ((local.edits && local.edits[f]) || 0) > ((remote.edits && remote.edits[f]) || 0));
   // Stable text form of a synced value. Chrome hands values back with their fields in
   // alphabetical order, so compare with sorted keys or our own saves look like changes
   // from another computer (and re-draw the list mid-edit).
@@ -326,6 +404,7 @@
   function onSyncChanged(changes, area) {
     if (area !== 'sync') return;
     let touched = false;
+    let writeBack = false;
     for (const [k, change] of Object.entries(changes)) {
       if (!isSyncKey(k)) continue;
       const nv = change.newValue === undefined ? undefined : canon(change.newValue);
@@ -342,18 +421,27 @@
         if (change.newValue === undefined) {
           if (i >= 0) {
             const gone = state.tasks.splice(i, 1)[0];
+            known.delete(id);
             // Another computer archived it: keep a copy in this computer's archive too.
             if (gone.done && gone.completedAt && gone.completedAt < archiveCutoff()) putInArchive([gone]);
             touched = true;
           }
         }
-        else { const t = unpackTask(id, change.newValue); if (i >= 0) state.tasks[i] = t; else state.tasks.push(t); touched = true; }
+        else {
+          let t = unpackTask(id, change.newValue);
+          // This computer changed some part more recently (e.g. not synced yet): keep it.
+          if (i >= 0 && newerLocally(state.tasks[i], t)) { t = mergeTask(state.tasks[i], t); writeBack = true; }
+          if (i >= 0) state.tasks[i] = t; else state.tasks.push(t);
+          known.set(id, fieldsOf(t));
+          touched = true;
+        }
       }
     }
     if (!touched) return;
     if (!['all', 'today', 'starred'].includes(state.view) && !listById(state.view)) state.view = state.lists[0].id;
     if (ui.openTaskId && !taskById(ui.openTaskId)) ui.openTaskId = null;
     saveLocal();
+    if (writeBack) scheduleSync(); // send the merged version back so both computers agree
     render();
     updateUsage();
   }
@@ -386,12 +474,13 @@
 
   async function init() {
     const local = loadLocal();
-    if (!syncArea) { state = local || freshState(); return; }
+    if (!syncArea) { state = local || freshState(); rememberAll(); return; }
     let items;
     try {
       items = await syncArea.get(null);
     } catch (e) {
       state = local || freshState();
+      rememberAll();
       Sync.status = 'error';
       return;
     }
@@ -402,12 +491,21 @@
     if (!remote) data = prefs; // first computer: upload what's here
     else if (!local) data = remote; // new computer: take what's synced
     else if (localStorage.getItem(SYNCED_KEY) !== '1') data = mergeData(remote, local, true); // first sync on this computer
-    else if (localStorage.getItem(DIRTY_KEY) === '1') data = mergeData(remote, local, false); // closed before the last sync finished
-    else data = remote;
+    else {
+      // Usual case. Merge each task part by part with this computer's copy, so changes
+      // that lost a sync race (or weren't synced before closing) aren't dropped.
+      const dirty = localStorage.getItem(DIRTY_KEY) === '1';
+      const mine = new Map(local.tasks.map((t) => [t.id, t]));
+      const tasks = remote.tasks.map((r) => (mine.has(r.id) ? mergeTask(mine.get(r.id), r) : r));
+      // Tasks only here: new and not yet synced (keep) or deleted elsewhere (drop).
+      if (dirty) { const ids = new Set(remote.tasks.map((t) => t.id)); for (const t of local.tasks) if (!ids.has(t.id)) tasks.push(t); }
+      data = dirty ? { lists: mergeData(remote, local, false).lists, tasks } : { lists: remote.lists, tasks };
+    }
     state = normalize({ ...prefs, lists: data.lists, tasks: data.tasks });
     // The default sort follows the account, unless this computer has unsynced changes.
     if (remote && remote.defaultSort && localStorage.getItem(DIRTY_KEY) !== '1') state.defaultSort = remote.defaultSort;
     try { localStorage.setItem(SYNCED_KEY, '1'); } catch (e) { /* ignore */ }
+    rememberAll();
     save();
     await flushSync();
     chrome.storage.onChanged.addListener(onSyncChanged);
@@ -499,7 +597,7 @@
       due: due || (state.view === 'today' ? todayKey() : ''),
       priority,
       starred: state.view === 'starred',
-      repeat: '',
+      repeat: '', remind: '', steps: [], edits: {},
       done: false, completedAt: 0, createdAt: Date.now(),
       order: topOrder(listId),
     };
@@ -513,7 +611,12 @@
     t.done = done;
     t.completedAt = done ? Date.now() : 0;
     if (done && t.repeat) {
-      const next = { ...t, id: uid(), due: nextDue(t.repeat, t.due), done: false, completedAt: 0, createdAt: Date.now() };
+      const due = nextDue(t.repeat, t.due);
+      const next = {
+        ...t, id: uid(), due, done: false, completedAt: 0, createdAt: Date.now(), edits: {},
+        steps: (t.steps || []).map((x) => ({ text: x.text, done: false })), // checklist starts fresh
+        remind: shiftRemind(t.remind, t.due, due), // same time, same distance from the due date
+      };
       state.tasks.push(next);
       spawned.set(t.id, { id: next.id, repeat: t.repeat });
       t.repeat = ''; // the finished copy doesn't repeat again
@@ -597,6 +700,13 @@
       meta.push(t.done
         ? `<span class="chip">${icon('flag')}${PRI[t.priority]}</span>`
         : `<button type="button" class="chip chip-btn pri-${t.priority}" data-action="pick-pri" aria-label="${PRI[t.priority]} priority. Change priority">${icon('flag')}${PRI[t.priority]}</button>`);
+    }
+    if (t.remind && !t.done) {
+      meta.push(`<button type="button" class="chip chip-btn${remindPast(t.remind) ? ' chip-muted' : ''}" data-action="open-remind" aria-label="Reminder ${esc(fmtRemind(t.remind))}. Change reminder">${icon('bell')}${esc(fmtRemind(t.remind))}</button>`);
+    }
+    if (t.steps && t.steps.length) {
+      const n = t.steps.filter((x) => x.done).length;
+      meta.push(`<button type="button" class="chip chip-btn${n === t.steps.length ? ' chip-done' : ''}" data-action="open-steps" aria-label="${n} of ${t.steps.length} steps done. Show steps">${icon('steps')}${n}/${t.steps.length}</button>`);
     }
     if (!v.list) {
       const l = listById(t.listId);
@@ -760,6 +870,7 @@
 
   function renderDetails() {
     const t = taskById(ui.openTaskId);
+    if (t && !Array.isArray(t.steps)) t.steps = [];
     if (!t) {
       ui.openTaskId = null;
       details.hidden = true;
@@ -782,7 +893,19 @@
       `<div class="field"><label for="dTitle">Title</label>` +
       `<input id="dTitle" class="input title-input" value="${esc(t.title)}" placeholder="Title" maxlength="500"></div>` +
       `<div class="field"><label for="dNotes">Details</label>` +
-      `<textarea id="dNotes" class="input" rows="5" placeholder="Add details" maxlength="2000">${esc(t.notes)}</textarea></div>` +
+      `<textarea id="dNotes" class="input" rows="4" placeholder="Add details" maxlength="2000">${esc(t.notes)}</textarea></div>` +
+      `<div class="field"><span class="field-label" id="stepsLabel">Steps${t.steps.length ? ` <span class="steps-count">${t.steps.filter((x) => x.done).length} of ${t.steps.length}</span>` : ''}</span>` +
+      (t.steps.length
+        ? `<ul class="steps" aria-labelledby="stepsLabel">${t.steps.map((x, i) =>
+          `<li class="step${x.done ? ' is-done' : ''}" data-i="${i}">` +
+          `<button type="button" class="step-check" data-action="step-toggle" role="checkbox" aria-checked="${x.done}" aria-label="Done: ${esc(x.text || 'step')}">${icon('check')}</button>` +
+          `<input id="dStep-${i}" class="step-text" value="${esc(x.text)}" maxlength="${STEP_MAX}" aria-label="Step ${i + 1}">` +
+          `<button type="button" class="icon-btn step-del" data-action="step-del" title="Remove step" aria-label="Remove step: ${esc(x.text || 'step')}">${icon('close')}</button></li>`).join('')}</ul>`
+        : '') +
+      (t.steps.length < STEPS_MAX
+        ? `<div class="step-add-row">${icon('plus')}<input id="dStepAdd" class="step-add" placeholder="Add a step" maxlength="${STEP_MAX}" aria-label="Add a step"></div>`
+        : `<p class="field-help">That’s the most steps a task can have (${STEPS_MAX}).</p>`) +
+      `</div>` +
       `<div class="field"><label for="dDue">Due date</label><div class="row">` +
       `<input id="dDue" class="input" type="date" value="${esc(t.due)}">` +
       (t.due ? `<button type="button" class="text-btn" data-action="clear-due">Clear</button>` : '') +
@@ -790,6 +913,10 @@
       (t.done ? '' : `<div class="field"><label for="dRepeat">Repeat</label><span class="select-wrap block"><select id="dRepeat" class="input select">` +
         ['', ...REPEATS].map((r) => `<option value="${r}"${(t.repeat || '') === r ? ' selected' : ''}>${esc(repeatLabel(r, t.due))}</option>`).join('') +
         `</select>${icon('chevron', 'select-chev')}</span></div>`) +
+      (t.done ? '' : `<div class="field"><label for="dRemind">Remind me</label><div class="row">` +
+        `<input id="dRemind" class="input" type="datetime-local" value="${esc(t.remind)}">` +
+        (t.remind ? `<button type="button" class="text-btn" data-action="clear-remind">Clear</button>` : '') +
+        `</div>${t.remind && remindPast(t.remind) ? `<p class="field-help">This time has passed.</p>` : `<p class="field-help">A notification pops up at this time. Your browser needs to be open; if it isn’t, it shows when you next open it.</p>`}</div>`) +
       `<fieldset class="field"><legend>Priority</legend><div class="seg">` +
       PRI.map((p, i) => `<label class="seg-opt pri-${i}"><input type="radio" name="dPri" value="${i}"${t.priority === i ? ' checked' : ''}>` +
         `<span>${i ? icon('flag') : ''}${p}</span></label>`).join('') +
@@ -1174,6 +1301,13 @@
     const backups = localArea ? (await getBackups()).slice().reverse() : null;
     const archived = localArea ? (await getArchive()).length : 0;
     const doneCount = state.tasks.filter((t) => t.done).length;
+    let shortcut = null;
+    try {
+      if (chrome.commands && chrome.commands.getAll) {
+        const cmd = (await chrome.commands.getAll()).find((c) => c.name === 'open-checkrow');
+        shortcut = cmd ? cmd.shortcut || '' : null;
+      }
+    } catch (e) { shortcut = null; }
     modal.returnValue = '';
     modal.classList.add('wide');
     modal.innerHTML =
@@ -1200,6 +1334,14 @@
           `<label class="switch-row"><input type="checkbox" id="badgeOn" role="switch"${badge.on ? ' checked' : ''}>` +
           `<span class="choice-text"><span class="choice-label">Show a count on the CheckRow icon</span>` +
           `<span class="choice-help">How many tasks are overdue or due today. Red when something is overdue.</span></span></label>` +
+          `</fieldset>`
+        : '') +
+      (shortcut !== null
+        ? `<fieldset class="choices"><legend>Shortcuts</legend>` +
+          `<div class="shortcut-row"><span>Open CheckRow</span>` +
+          (shortcut ? `<kbd>${esc(shortcut)}</kbd>` : `<span class="choice-help">Not set</span>`) +
+          `<button type="button" class="text-btn" data-action="edit-shortcut">Change</button></div>` +
+          `<p class="choices-note">To add something as a task, highlight text or right-click a link or page and choose <b>Add to CheckRow</b>.</p>` +
           `</fieldset>`
         : '') +
       (backups
@@ -1260,6 +1402,7 @@
         return;
       }
       if (act && act.dataset.action === 'view-archive') { showArchive(); return; }
+      if (act && act.dataset.action === 'edit-shortcut') { chrome.tabs.create({ url: 'chrome://extensions/shortcuts' }); return; }
       if (act && act.dataset.action === 'archive-now') {
         act.disabled = true;
         const n = await archiveCompleted(true);
@@ -1372,7 +1515,7 @@
       ...(rep ? [{ type: 'sep' }, {
         label: 'Repeat', icon: 'repeat', hint: rep.value ? repeatLabel(rep.value, current).replace(/ on .*/, '') : 'Off',
         run: () => repeatMenu(anchor, rep.value, current, rep.apply),
-      }] : []),
+      }, ...(rep.remind ? [{ label: 'Remind me', icon: 'bell', hint: rep.remindValue ? 'On' : 'Off', run: rep.remind }] : [])] : []),
       { type: 'sep' },
       { label: 'No due date', disabled: !current, run: () => apply('') },
     ]);
@@ -1443,10 +1586,12 @@
     else toast('Task moved back to your list');
   }
 
-  function openDetails(id) {
+  function openDetails(id, focus = '#dTitle') {
     ui.openTaskId = id;
     render();
-    $('#dTitle')?.focus();
+    const el = $(focus);
+    el?.focus();
+    if (focus !== '#dTitle') el?.scrollIntoView({ block: 'center' });
   }
   function closeDetails() {
     const id = ui.openTaskId;
@@ -1654,6 +1799,8 @@
       } break;
       case 'star': if (t) { t.starred = !t.starred; save(); render(); } break;
       case 'open': if (t) openDetails(t.id); break;
+      case 'open-remind': if (t) openDetails(t.id, '#dRemind'); break;
+      case 'open-steps': if (t) openDetails(t.id, t.steps.length ? '#dStep-0' : '#dStepAdd'); break;
       case 'toggle-done':
         state.showCompleted[state.view] = !doneOpen();
         save();
@@ -1678,6 +1825,8 @@
           dueMenu(b, t.due, (v) => { t.due = v; if (!v) t.repeat = ''; save(); render(); refocus(t.id, action, kb); }, {
             value: t.repeat,
             apply: (r) => { t.repeat = r; if (r && !t.due) t.due = todayKey(); save(); render(); refocus(t.id, action, kb); },
+            remindValue: t.remind,
+            remind: () => openDetails(t.id, '#dRemind'),
           });
         } else if (action === 'pick-pri' && t) {
           priorityMenu(b, t.priority, (p) => { t.priority = p; save(); render(); refocus(t.id, action, kb); });
@@ -1792,14 +1941,50 @@
     if (!t) return;
     if (e.target.id === 'dTitle') t.title = e.target.value;
     else if (e.target.id === 'dNotes') t.notes = e.target.value;
-    else return;
+    else if (e.target.matches('.step-text')) {
+      const x = t.steps[Number(e.target.closest('.step').dataset.i)];
+      if (!x) return;
+      x.text = e.target.value;
+    } else return;
     save();
     renderMain();
+  });
+  function addStep(t, input) {
+    const text = input.value.trim().slice(0, STEP_MAX);
+    input.value = ''; // cleared first, so the re-render's blur doesn't add it again
+    if (!text || t.steps.length >= STEPS_MAX) return;
+    t.steps = [...t.steps, { text, done: false }];
+    save();
+    renderMain();
+    renderDetails();
+    $('#dStepAdd')?.focus();
+  }
+  details.addEventListener('keydown', (e) => {
+    const t = taskById(ui.openTaskId);
+    if (!t) return;
+    if (e.target.id === 'dStepAdd' && e.key === 'Enter') { e.preventDefault(); addStep(t, e.target); return; }
+    if (!e.target.matches('.step-text')) return;
+    const i = Number(e.target.closest('.step').dataset.i);
+    if (e.key === 'Enter') { e.preventDefault(); ($(`#dStep-${i + 1}`) || $('#dStepAdd'))?.focus(); }
+    else if (e.key === 'Backspace' && !e.target.value) {
+      // Backspace in an empty step removes it.
+      e.preventDefault();
+      t.steps = t.steps.filter((_, j) => j !== i);
+      save(); renderMain(); renderDetails();
+      ($(`#dStep-${Math.max(0, i - 1)}`) || $('#dStepAdd'))?.focus();
+    }
   });
   details.addEventListener('change', (e) => {
     const t = taskById(ui.openTaskId);
     if (!t) return;
     if (e.target.id === 'dTitle') { t.title = t.title.trim(); }
+    else if (e.target.id === 'dStepAdd') { addStep(t, e.target); return; }
+    else if (e.target.matches('.step-text')) {
+      const i = Number(e.target.closest('.step').dataset.i);
+      const text = e.target.value.trim();
+      t.steps = text ? t.steps.map((x, j) => (j === i ? { ...x, text } : x)) : t.steps.filter((_, j) => j !== i);
+    }
+    else if (e.target.id === 'dRemind') { t.remind = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(e.target.value) ? e.target.value : ''; }
     else if (e.target.id === 'dDue') { t.due = e.target.value || ''; if (!t.due) t.repeat = ''; }
     else if (e.target.id === 'dRepeat') {
       t.repeat = REPEATS.includes(e.target.value) ? e.target.value : '';
@@ -1825,6 +2010,18 @@
       case 'clear-due':
         if (t) { t.due = ''; t.repeat = ''; save(); render(); $('#dDue')?.focus(); }
         break;
+      case 'clear-remind':
+        if (t) { t.remind = ''; save(); render(); $('#dRemind')?.focus(); }
+        break;
+      case 'step-toggle': case 'step-del': {
+        const i = Number(b.closest('.step').dataset.i);
+        if (!t || !t.steps[i]) break;
+        if (b.dataset.action === 'step-toggle') t.steps = t.steps.map((x, j) => (j === i ? { ...x, done: !x.done } : x));
+        else t.steps = t.steps.filter((_, j) => j !== i);
+        save(); renderMain(); renderDetails();
+        ($(`.step[data-i="${i}"] [data-action="${b.dataset.action}"]`, details) || $('#dStepAdd'))?.focus();
+        break;
+      }
       case 'details-done':
         if (t) { toggleTask(t); $('[data-action="details-done"]')?.focus(); }
         break;
@@ -1877,14 +2074,45 @@
     if (k !== lastDay) { lastDay = k; render(); archiveCompleted(); }
   }, 60000);
 
+  // Tasks added from the right-click menu before CheckRow had ever been opened.
+  async function takePendingAdds() {
+    if (!localArea) return;
+    try {
+      const { pendingAdds } = await localArea.get('pendingAdds');
+      if (!Array.isArray(pendingAdds) || !pendingAdds.length) return;
+      await localArea.remove('pendingAdds');
+      for (const p of pendingAdds) {
+        if (taskById(p.id)) continue;
+        const t = unpackTask(p.id, { ...p, l: state.lists[0].id });
+        t.order = topOrder(t.listId);
+        state.tasks.push(normalize({ ...state, tasks: [t] }).tasks[0]);
+      }
+      save();
+      render();
+    } catch (e) { /* ignore */ }
+  }
+
   init().then(() => {
     render();
     archiveCompleted();
+    takePendingAdds();
     syncScrim();
     updateUsage();
     if (location.hash === '#brief') {
       history.replaceState(null, '', location.pathname);
       openBrief();
     }
+    openTaskFromHash();
   });
+  // A reminder notification opens CheckRow at its task: index.html#task=<id>.
+  function openTaskFromHash() {
+    const m = /^#task=(.+)$/.exec(location.hash);
+    if (!m) return;
+    history.replaceState(null, '', location.pathname);
+    const t = taskById(decodeURIComponent(m[1]));
+    if (!t) { toast('That task is no longer on your list.'); return; }
+    if (state.view !== t.listId && !['all'].includes(state.view)) { state.view = t.listId; saveLocal(); }
+    openDetails(t.id);
+  }
+  window.addEventListener('hashchange', openTaskFromHash);
 })();

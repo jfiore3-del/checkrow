@@ -4,6 +4,8 @@
 //   notification; clicking it opens CheckRow with the AI Brief window.
 // - Keeps a daily backup of the tasks in chrome.storage.local (last 7 days).
 // - Shows the number of overdue + due-today tasks on the toolbar icon.
+// - Shows reminders set on single tasks ("Remind me" in a task's details).
+// - Adds "Add to CheckRow" to the right-click menu.
 // Everything stays in the browser; nothing is sent anywhere.
 
 chrome.sidePanel
@@ -15,6 +17,10 @@ const DAILY = 'checkrow-daily'; // just after midnight: backup + refresh the cou
 const KEEP_BACKUPS = 7;
 const NOTE_PREFIX = 'checkrow-brief';
 const DEFAULT_REMINDER = { on: false, days: [1, 2, 3, 4, 5], time: '08:30' };
+const TASK_ALARM = 'checkrow-task:'; // + task id
+const TASK_NOTE = 'checkrow-task-'; // + task id + '-' + time
+const CATCH_UP_MS = 24 * 3600000; // show a missed task reminder up to a day late
+const MENU_ID = 'checkrow-add';
 
 const pad = (n) => String(n).padStart(2, '0');
 const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -106,6 +112,120 @@ async function showReminder() {
   return id;
 }
 
+// ---------- Reminders on single tasks ----------
+// A task's reminder is "YYYY-MM-DDTHH:MM" (local time) in its "m" field. Each upcoming
+// one gets its own alarm. "remShown" (synced) records which were shown, so only one
+// computer shows each, and a computer that was off catches up when it next starts.
+async function syncTaskAlarms() {
+  const all = await chrome.storage.sync.get(null);
+  const shown = all.remShown || {};
+  const now = Date.now();
+  const want = new Map();
+  for (const [k, v] of Object.entries(all)) {
+    if (!k.startsWith('t:') || !v || v.x || typeof v.m !== 'string') continue;
+    const when = new Date(v.m).getTime();
+    if (when > now && shown[k.slice(2)] !== v.m) want.set(TASK_ALARM + k.slice(2), when);
+  }
+  for (const a of await chrome.alarms.getAll()) {
+    if (!a.name.startsWith(TASK_ALARM)) continue;
+    if (want.get(a.name) === a.scheduledTime) want.delete(a.name);
+    else if (!want.has(a.name)) await chrome.alarms.clear(a.name);
+  }
+  for (const [name, when] of want) await chrome.alarms.create(name, { when });
+}
+
+// Show every task reminder whose time has come (and not more than a day ago).
+async function showDueTaskReminders() {
+  const all = await chrome.storage.sync.get(null);
+  const shown = { ...(all.remShown || {}) };
+  const now = Date.now();
+  const due = [];
+  for (const [k, v] of Object.entries(all)) {
+    if (!k.startsWith('t:') || !v || v.x || typeof v.m !== 'string') continue;
+    const id = k.slice(2);
+    const when = new Date(v.m).getTime();
+    if (when <= now && when > now - CATCH_UP_MS && shown[id] !== v.m) { due.push([id, v]); shown[id] = v.m; }
+  }
+  // Forget tasks that no longer exist.
+  for (const id of Object.keys(shown)) if (!all[`t:${id}`]) delete shown[id];
+  if (due.length || Object.keys(shown).length !== Object.keys(all.remShown || {}).length) {
+    await chrome.storage.sync.set({ remShown: shown });
+  }
+  for (const [id, v] of due) await showTaskReminder(id, v);
+  return due.length;
+}
+
+async function showTaskReminder(id, v) {
+  const today = dayKey(new Date());
+  const dueText = !v.d ? '' : v.d < today ? 'Overdue' : v.d === today ? 'Due today' : `Due ${new Date(`${v.d}T00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`;
+  const steps = Array.isArray(v.k) && v.k.length ? `${v.k.filter((s) => s && s[1]).length} of ${v.k.length} steps done` : '';
+  await chrome.notifications.create(`${TASK_NOTE}${id}-${Date.now()}`, {
+    type: 'basic',
+    iconUrl: 'icons/checkrow-128.png',
+    title: String(v.t || 'Reminder').slice(0, 120),
+    message: [dueText, steps].filter(Boolean).join(' · ') || 'CheckRow reminder',
+    contextMessage: 'CheckRow reminder · Click to open',
+    priority: 2,
+  });
+}
+
+// ---------- Right-click "Add to CheckRow" ----------
+function setUpMenu() {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({ id: MENU_ID, title: 'Add “%s” to CheckRow', contexts: ['selection'] });
+    chrome.contextMenus.create({ id: `${MENU_ID}-link`, title: 'Add link to CheckRow', contexts: ['link'] });
+    chrome.contextMenus.create({ id: `${MENU_ID}-page`, title: 'Add this page to CheckRow', contexts: ['page'] });
+  });
+}
+
+const tidy = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+async function addFromMenu(info, tab) {
+  const { meta } = await chrome.storage.sync.get('meta');
+  const listId = meta && Array.isArray(meta.lists) && meta.lists[0] && meta.lists[0].id;
+  let title;
+  let notes;
+  if (info.menuItemId === MENU_ID) {
+    title = tidy(info.selectionText, 500);
+    notes = info.pageUrl || '';
+  } else if (info.menuItemId === `${MENU_ID}-link`) {
+    title = tidy(info.selectionText, 500) || tidy(info.linkUrl.replace(/^https?:\/\/(www\.)?/, ''), 200);
+    notes = info.linkUrl;
+  } else {
+    title = tidy(tab && tab.title, 500) || tidy(info.pageUrl, 200);
+    notes = info.pageUrl || '';
+  }
+  if (!title) return;
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const now = Date.now();
+  const task = { l: listId || 'pending', t: title, a: now, o: -Math.floor(now / 1000) };
+  if (notes && !/^chrome(-extension)?:/.test(notes)) task.n = notes.slice(0, 2000);
+  if (listId) {
+    await chrome.storage.sync.set({ [`t:${id}`]: task });
+  } else {
+    // No lists synced yet (CheckRow never opened): hand it to the page to add on open.
+    const { pendingAdds } = await chrome.storage.local.get('pendingAdds');
+    await chrome.storage.local.set({ pendingAdds: [...(pendingAdds || []), { id, ...task }] });
+  }
+}
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (!String(info.menuItemId).startsWith(MENU_ID)) return;
+  // Open the panel right away (it must happen during the click), then add the task.
+  if (tab && tab.windowId !== undefined && chrome.sidePanel.open) {
+    chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
+  }
+  addFromMenu(info, tab).catch((e) => console.error('CheckRow: could not add from menu', e));
+});
+
+// ---------- Keyboard shortcut ----------
+// "Open CheckRow" (Alt+Shift+K by default; people can change it at chrome://extensions/shortcuts).
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command !== 'open-checkrow') return;
+  const open = (windowId) => chrome.sidePanel.open({ windowId }).catch((e) => console.error('CheckRow: could not open the panel', e));
+  if (tab && tab.windowId !== undefined) open(tab.windowId);
+  else chrome.windows.getCurrent().then((w) => open(w.id));
+});
+
 // ---------- Daily backup ----------
 // One copy per day of everything CheckRow keeps in sync, stored on this computer.
 async function backupIfDue() {
@@ -153,6 +273,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM) {
     await remindIfDue();
     await schedule();
+  } else if (alarm.name.startsWith(TASK_ALARM)) {
+    await showDueTaskReminders();
+    await syncTaskAlarms();
   } else if (alarm.name === DAILY) {
     await dailyChores();
     await scheduleDaily();
@@ -160,13 +283,17 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
+  setUpMenu();
   await schedule();
+  await syncTaskAlarms();
   await scheduleDaily();
   await dailyChores();
 });
 chrome.runtime.onStartup.addListener(async () => {
   await remindIfDue();
   await schedule();
+  await showDueTaskReminders();
+  await syncTaskAlarms();
   await scheduleDaily();
   await dailyChores();
 });
@@ -175,13 +302,23 @@ let badgeTimer = 0;
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'sync') return;
   if (changes.reminder) schedule();
-  if (changes.badge || Object.keys(changes).some((k) => k.startsWith('t:'))) {
+  const tasksChanged = Object.keys(changes).some((k) => k.startsWith('t:'));
+  if (changes.badge || tasksChanged) {
     clearTimeout(badgeTimer);
-    badgeTimer = setTimeout(() => { updateBadge().catch(() => {}); }, 300);
+    badgeTimer = setTimeout(() => {
+      updateBadge().catch(() => {});
+      if (tasksChanged) syncTaskAlarms().catch(() => {});
+    }, 300);
   }
 });
 
 chrome.notifications.onClicked.addListener((id) => {
+  if (id.startsWith(TASK_NOTE)) {
+    chrome.notifications.clear(id);
+    const taskId = id.slice(TASK_NOTE.length).replace(/-\d+$/, '');
+    chrome.tabs.create({ url: chrome.runtime.getURL(`index.html#task=${encodeURIComponent(taskId)}`) });
+    return;
+  }
   if (!id.startsWith(NOTE_PREFIX)) return;
   chrome.notifications.clear(id);
   chrome.tabs.create({ url: chrome.runtime.getURL('index.html#brief') });
