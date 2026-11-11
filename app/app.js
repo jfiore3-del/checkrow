@@ -1855,24 +1855,36 @@
     const doneCount = state.tasks.filter((t) => t.listId === l.id && t.done).length;
     openMenu(anchor, [
       { label: 'Rename list', run: () => renameList(l) },
+      { label: 'Export this list', run: () => exportList(l) },
       { label: 'Delete all completed tasks', disabled: !doneCount, run: () => deleteCompleted(l) },
       { label: state.lists.length > 1 ? 'Delete list' : 'Delete list (need at least one)', danger: true, disabled: state.lists.length < 2, run: () => deleteList(l) },
     ]);
   }
 
-  async function exportData() {
-    const archive = await getArchive();
-    const data = { app: 'CheckRow', exportedAt: new Date().toISOString(), ...state, ...(archive.length ? { archive } : {}) };
+  function downloadJson(data, name) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `checkrow-backup-${todayKey()}.json`;
+    a.download = name;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function exportData() {
+    const archive = await getArchive();
+    downloadJson({ app: 'CheckRow', kind: 'backup', exportedAt: new Date().toISOString(), ...state, ...(archive.length ? { archive } : {}) },
+      `checkrow-backup-${todayKey()}.json`);
     toast('Backup downloaded');
+  }
+  // One list, to share (e.g. a training checklist). No settings, no edit history.
+  function exportList(l) {
+    const tasks = state.tasks.filter((t) => t.listId === l.id).map(({ edits, ...t }) => t);
+    const slug = l.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'list';
+    downloadJson({ app: 'CheckRow', kind: 'list', exportedAt: new Date().toISOString(), lists: [{ id: l.id, name: l.name }], tasks },
+      `checkrow-list-${slug}.json`);
+    toast(`“${l.name}” exported. Anyone with CheckRow can import it as a new list.`);
   }
 
   async function importData(file) {
@@ -1884,16 +1896,18 @@
       toast('That file isn’t a CheckRow backup.');
       return;
     }
-    const n = data.tasks.length;
-    const ok = await ask({
-      title: 'Replace your tasks?',
-      message: `Everything here will be replaced with the ${data.lists.length} list${data.lists.length === 1 ? '' : 's'} and ${n} task${n === 1 ? '' : 's'} in “${file.name}”.`,
-      confirm: 'Replace',
-      danger: true,
-    });
-    if (!ok) return;
+    const incoming = normalize(data);
+    const nL = incoming.lists.length;
+    const nT = incoming.tasks.length;
+    const doneN = incoming.tasks.filter((t) => t.done).length;
+    const isList = data.kind === 'list';
+    const choice = await importChoice({ file: file.name, nL, nT, doneN, isList });
+    if (!choice) return;
+    if (choice.mode === 'add') { addFromImport(incoming, choice.skipDone); return; }
     const previous = state;
-    state = normalize(data);
+    // Replace: lists and tasks from the file. Settings come from the file only if it has
+    // them (a full backup does; an exported list doesn't).
+    state = normalize({ ...state, ...data });
     ui.openTaskId = null;
     if (Array.isArray(data.archive) && data.archive.length) {
       const items = data.archive.filter((a) => a && typeof a.id === 'string' && a.l);
@@ -1902,6 +1916,90 @@
     save();
     render();
     toast('Backup imported', () => { state = previous; save(); render(); });
+  }
+
+  // The import window: Add lists from this file (default) or Replace everything.
+  function importChoice({ file, nL, nT, doneN, isList }) {
+    return new Promise((resolve) => {
+      const what = `${nL} list${nL === 1 ? '' : 's'} and ${nT} task${nT === 1 ? '' : 's'}`;
+      modal.returnValue = '';
+      modal.innerHTML =
+        `<form method="dialog" class="modal-form import-form"><h2 id="modalTitle">Import “${esc(file)}”</h2>` +
+        `<p>This file has ${esc(what)}.</p>` +
+        `<fieldset class="import-choices"><legend class="sr-only">How to import</legend>` +
+        `<label class="import-opt"><input type="radio" name="importMode" value="add" checked>` +
+        `<span><b>Add lists from this file</b><span class="choice-help">Your lists and tasks stay. The file’s lists are added as new lists${nL > 1 ? '' : ''}; if a name is taken, it becomes “Name (2)”.</span></span></label>` +
+        `<label class="import-opt"><input type="radio" name="importMode" value="replace">` +
+        `<span><b>Replace everything</b><span class="choice-help">${isList ? 'All your lists and tasks are replaced by this list.' : 'All your lists and tasks are replaced by the file’s, including its settings.'} You can undo right after.</span></span></label>` +
+        `</fieldset>` +
+        (doneN ? `<label class="check-row"><input type="checkbox" id="importSkipDone"${isList ? '' : ' checked'}><span>Leave out the ${doneN} completed task${doneN === 1 ? '' : 's'} when adding</span></label>` : '') +
+        `<div class="modal-actions"><button value="ok" class="btn primary" id="importGo">Add lists</button>` +
+        `<button value="cancel" class="btn" formnovalidate>Cancel</button></div></form>`;
+      const go = $('#importGo', modal);
+      const skip = $('#importSkipDone', modal);
+      modal.querySelector('.import-choices').addEventListener('change', () => {
+        const replace = modal.querySelector('input[name="importMode"]:checked').value === 'replace';
+        go.textContent = replace ? 'Replace everything' : 'Add lists';
+        go.className = `btn ${replace ? 'danger solid' : 'primary'}`;
+        if (skip) skip.closest('label').hidden = replace;
+      });
+      modal.showModal();
+      modal.addEventListener('close', () => {
+        if (modal.returnValue !== 'ok') return resolve(null);
+        resolve({ mode: modal.querySelector('input[name="importMode"]:checked').value, skipDone: !!(skip && skip.checked) });
+      }, { once: true });
+    });
+  }
+
+  // Add the file's lists and tasks next to what's here: new IDs for everything, so
+  // nothing collides; names that are taken get " (2)", " (3)"…; settings untouched.
+  function addFromImport(incoming, skipDone) {
+    const tasksIn = incoming.tasks.filter((t) => !(skipDone && t.done));
+    const listsIn = incoming.lists;
+    // Chrome sync keeps at most 512 items (one per task) and about 100 KB.
+    if (syncArea) {
+      const items = Sync.last.size + tasksIn.length;
+      const bytes = [...Sync.last.values()].reduce((n, v) => n + (v ? v.length : 0), 0) +
+        tasksIn.reduce((n, t) => n + canon(packTask(t)).length + 40, 0);
+      const room = SYNC_MAX_ITEMS - 12 - Sync.last.size;
+      if (items > SYNC_MAX_ITEMS - 12 || bytes > SYNC_QUOTA * 0.95) {
+        ask({
+          title: 'That’s more than sync can hold',
+          message: `Adding ${tasksIn.length} tasks would go over Chrome sync’s limit (about ${SYNC_MAX_ITEMS} tasks or 100 KB in all). ` +
+            `There’s room for about ${Math.max(0, room)} more. Archive completed tasks in Settings, or import a smaller file.`,
+          confirm: 'OK',
+        });
+        return;
+      }
+    }
+    const taken = new Set(state.lists.map((l) => l.name.toLowerCase()));
+    const listMap = new Map();
+    const newLists = listsIn.map((l) => {
+      let name = l.name;
+      for (let k = 2; taken.has(name.toLowerCase()); k += 1) name = `${l.name.slice(0, 74)} (${k})`;
+      taken.add(name.toLowerCase());
+      const nl = { id: uid(), name };
+      listMap.set(l.id, nl.id);
+      return nl;
+    });
+    const now = Date.now();
+    const newTasks = tasksIn.filter((t) => listMap.has(t.listId)).map((t) => ({
+      ...t,
+      id: uid(),
+      listId: listMap.get(t.listId),
+      edits: {},
+      steps: (t.steps || []).map((x) => ({ ...x })),
+      // A repeating reminder starts counting from now, so nothing fires the moment it arrives.
+      schedule: t.schedule ? { ...t.schedule, days: [...t.schedule.days], since: now } : null,
+    }));
+    const previous = state;
+    state = normalize({ ...state, lists: [...state.lists, ...newLists], tasks: [...state.tasks, ...newTasks] });
+    state.view = newLists[0].id;
+    ui.openTaskId = null;
+    save();
+    render();
+    toast(`Added ${newLists.length} list${newLists.length === 1 ? '' : 's'} and ${newTasks.length} task${newTasks.length === 1 ? '' : 's'}`,
+      () => { state = previous; save(); render(); });
   }
 
   // ---------- Events: top bar ----------

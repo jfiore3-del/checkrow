@@ -29,6 +29,7 @@ A clean, Google Workspace–style to-do list that lives in the Chrome side panel
 - **Undo** for completing, deleting and clearing tasks.
 - **Light and dark themes**, following the system by default.
 - **Sync across computers** through your Chrome account, with no server.
+- **Share a list**: *Export this list* in a list's ⋮ menu saves just that list. Importing offers *Add lists from this file* (your tasks stay; name clashes become "Name (2)"; settings untouched; checks the sync limit first) or *Replace everything*. Both can be undone.
 - **Daily backups**: a copy of your tasks is saved on your computer every day (last 7 kept) and can be restored from Settings. You can also export everything to a JSON file and import it back.
 - **Archive**: completed tasks move to an archive on your computer 30 days after you finish them, so sync never fills up. View, restore or delete them in Settings.
 - **Side panel or full tab**: single column in the side panel; the ↗ button opens a full three-pane view in a tab.
