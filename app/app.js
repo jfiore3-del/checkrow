@@ -30,6 +30,7 @@
   const ICONS = {
     menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    link: '<path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/>',
     search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
     star: '<path d="M12 3.6l2.6 5.2 5.8.9-4.2 4.1 1 5.7L12 16.8l-5.2 2.7 1-5.7-4.2-4.1 5.8-.9z"/>',
     inbox: '<path d="M3.5 13h4.5l1.5 3h5l1.5-3h4.5"/><path d="M5.5 5h13l2 8v5.5a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5V13z"/>',
@@ -775,6 +776,26 @@
     return `<div class="empty">${icon(ic)}<p class="empty-title">${title}</p><p>${text}</p></div>`;
   }
 
+  // ---------- Asking for a review (once, gently) ----------
+  // After 20 tasks completed on this computer, a small card asks for a store review.
+  // "Not now" asks once more after 60; closing it or reviewing never asks again.
+  // Counted only on this computer; nothing is sent anywhere.
+  const REVIEW_KEY = 'checkrow:review';
+  const storeUrl = (medium) => `https://chromewebstore.google.com/detail/${chrome.runtime.id}${medium === 'review_prompt' || medium === 'settings_rate' ? '/reviews' : ''}?utm_source=app&utm_medium=${medium}`;
+  function reviewState() {
+    try { return { done: 0, ask: 'yes', at: 20, ...JSON.parse(localStorage.getItem(REVIEW_KEY) || '{}') }; } catch (e) { return { done: 0, ask: 'yes', at: 20 }; }
+  }
+  function setReviewState(r) { try { localStorage.setItem(REVIEW_KEY, JSON.stringify(r)); } catch (e) { /* ignore */ } }
+  function countCompletion() { const r = reviewState(); r.done += 1; setReviewState(r); }
+  const showReviewAsk = () => { const r = reviewState(); return isExtension && r.ask !== 'never' && r.done >= r.at; };
+  function reviewAskHTML() {
+    return `<div class="review-ask" role="region" aria-label="Review CheckRow">${icon('star')}` +
+      `<p>Enjoying CheckRow? A quick review helps other people find it.</p>` +
+      `<div class="review-actions"><button type="button" class="btn primary" data-action="review-yes">Leave a review</button>` +
+      `<button type="button" class="text-btn" data-action="review-later">Not now</button></div>` +
+      `<button type="button" class="icon-btn review-close" data-action="review-never" title="Don’t ask again" aria-label="Don’t ask again">${icon('close')}</button></div>`;
+  }
+
   function renderMain() {
     const v = viewInfo();
     const { active, done } = visibleTasks();
@@ -812,6 +833,7 @@
         : '') +
       `</div>`;
     if (pendingText) $('#addInput').value = pendingText;
+    if (showReviewAsk() && !ui.search) main.insertAdjacentHTML('beforeend', reviewAskHTML());
     sizeTitles();
   }
 
@@ -1497,6 +1519,12 @@
           `<p class="choices-note">Completed tasks move to the archive on this computer ${ARCHIVE_DAYS} days after you finish them, so sync never fills up.</p>` +
           `</fieldset>`
         : '') +
+      (isExtension
+        ? `<fieldset class="choices"><legend>Like CheckRow?</legend>` +
+          `<div class="share-row"><button type="button" class="btn" data-action="rate">${icon('star')}Rate it</button>` +
+          `<button type="button" class="btn" data-action="share">${icon('link')}Copy link to share</button></div>` +
+          `<p class="choices-note">Reviews and word of mouth are how people find CheckRow.</p></fieldset>`
+        : '') +
       `<fieldset class="choices"><legend>Default sort order</legend>` +
       SORTS.map(([k, label]) => radio('defaultSort', k, label, SORT_HELP[k], state.defaultSort === k)).join('') +
       `<p class="choices-note">Applies to every list. You can still sort one list differently from the menu at the top of that list.</p>` +
@@ -1544,6 +1572,12 @@
       }
       if (act && act.dataset.action === 'view-archive') { showArchive(); return; }
       if (act && act.dataset.action === 'edit-shortcut') { chrome.tabs.create({ url: 'chrome://extensions/shortcuts' }); return; }
+      if (act && act.dataset.action === 'rate') { openUrl(storeUrl('settings_rate')); setReviewState({ ...reviewState(), ask: 'never' }); return; }
+      if (act && act.dataset.action === 'share') {
+        const ok = await copyText(`https://chromewebstore.google.com/detail/${chrome.runtime.id}?utm_source=share&utm_medium=app`);
+        toast(ok ? 'Link copied. Paste it anywhere to share CheckRow.' : 'Couldn’t copy the link.');
+        return;
+      }
       if (act && act.dataset.action === 'archive-now') {
         act.disabled = true;
         const n = await archiveCompleted(true);
@@ -1730,7 +1764,7 @@
     const next = completing && spawned.has(t.id) ? taskById(spawned.get(t.id).id) : null;
     const when = next ? fmtDue(next.due) : '';
     const msg = next ? `Task completed. Next one ${/^(Today|Tomorrow)$/.test(when) ? when.toLowerCase() : `on ${when}`}` : 'Task completed';
-    if (completing) toast(msg, () => { setDone(t, false); render(); });
+    if (completing) { countCompletion(); toast(msg, () => { setDone(t, false); render(); }); }
     else toast('Task moved back to your list');
   }
 
@@ -1947,6 +1981,14 @@
       } break;
       case 'star': if (t) { t.starred = !t.starred; save(); render(); } break;
       case 'open': if (t) openDetails(t.id); break;
+      case 'review-yes': openUrl(storeUrl('review_prompt')); setReviewState({ ...reviewState(), ask: 'never' }); renderMain(); break;
+      case 'review-later': {
+        const r = reviewState();
+        setReviewState(r.ask === 'yes' ? { ...r, ask: 'later', at: Math.max(60, r.done + 40) } : { ...r, ask: 'never' });
+        renderMain();
+        break;
+      }
+      case 'review-never': setReviewState({ ...reviewState(), ask: 'never' }); renderMain(); break;
       case 'open-remind': if (t) openDetails(t.id, t.remind && !t.schedule ? '#dRemind' : t.schedule ? '#dSchedTime' : 'input[name="dRemindMode"]:checked'); break;
       case 'open-steps': if (t) openDetails(t.id, t.steps.length ? '#dStep-0' : '#dStepAdd'); break;
       case 'toggle-done':

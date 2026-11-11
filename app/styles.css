@@ -777,3 +777,18 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; }
 .field.remind .day-row + .row { margin-top: 8px; }
 .field.remind .row .input { max-width: 240px; }
 .field.remind .seg-opt .ico { width: 15px; height: 15px; }
+
+/* Review prompt (once, gently) */
+.review-ask {
+  position: relative; margin: 16px 12px 24px; padding: 14px 40px 14px 14px; border-radius: 12px;
+  background: var(--accent-weak); color: var(--text); display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: start;
+}
+.review-ask > .ico { width: 20px; height: 20px; color: var(--accent); margin-top: 1px; }
+.review-ask p { margin: 0; font-size: 14px; line-height: 1.4; }
+.review-actions { grid-column: 2; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+.review-close { position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; }
+.review-close .ico { width: 16px; height: 16px; }
+/* Settings: rate / share */
+.share-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.share-row .btn { display: inline-flex; align-items: center; gap: 6px; }
+.share-row .btn .ico { width: 16px; height: 16px; }

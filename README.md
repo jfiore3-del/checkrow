@@ -25,6 +25,7 @@ A clean, Google Workspace–style to-do list that lives in the Chrome side panel
 - **Keyboard shortcut**: Alt+Shift+K opens CheckRow (change it at chrome://extensions/shortcuts).
 - **Safe with two computers**: each part of a task remembers when it last changed, so editing the name on one computer and the date on another keeps both, even if they sync late.
 - **Search** across titles and notes.
+- **Spread the word**: after 20 completed tasks, a one-time card asks for a store review ("Not now" asks once more later; × never). Settings has *Rate it* and *Copy link to share*.
 - **Undo** for completing, deleting and clearing tasks.
 - **Light and dark themes**, following the system by default.
 - **Sync across computers** through your Chrome account, with no server.
