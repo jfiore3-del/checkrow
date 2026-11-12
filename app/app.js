@@ -15,7 +15,7 @@
   };
   const isSort = (k) => SORTS.some(([s]) => s === k);
   const VIEWS = [
-    ['all', 'All tasks', 'inbox'],
+    ['all', 'All lists', 'inbox'],
     ['today', 'Today', 'calendar'],
     ['starred', 'Starred', 'star'],
   ];
@@ -30,6 +30,7 @@
   const ICONS = {
     menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    edit: '<path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/>',
     link: '<path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/>',
     search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
     star: '<path d="M12 3.6l2.6 5.2 5.8.9-4.2 4.1 1 5.7L12 16.8l-5.2 2.7 1-5.7-4.2-4.1 5.8-.9z"/>',
@@ -701,18 +702,27 @@
       `${icon(ic)}<span class="nav-label">${esc(label)}</span>${n ? `<span class="count" aria-label="${n} open">${n}</span>` : ''}</button></li>`;
   }
 
+  const VIEWS_OPEN_KEY = 'checkrow:viewsOpen';
+  const viewsOpen = () => { try { return localStorage.getItem(VIEWS_OPEN_KEY) === '1'; } catch (e) { return false; } };
   function renderSidebar() {
+    const inView = VIEWS.find(([id]) => id === state.view);
     sidebar.innerHTML =
+      `<label class="side-sort"><span class="side-sort-label">Default sort</span><span class="select-wrap">` +
+      `<select id="defaultSortSel" class="input select" aria-label="Default sort order for every list">` +
+      SORTS.map(([k, label]) => `<option value="${k}"${state.defaultSort === k ? ' selected' : ''}>${label}</option>`).join('') +
+      `</select>${icon('chevron', 'select-chev')}</span></label>` +
       `<button type="button" class="create-btn" data-action="create">${icon('plus')}<span>Create</span></button>` +
-      `<ul class="nav">${VIEWS.map(([id, label, ic]) => navItem(id, label, ic)).join('')}</ul>` +
+      // All lists / Today / Starred, folded into one dropdown (open if one is showing).
+      `<details class="nav-group" id="viewsGroup"${viewsOpen() || inView ? ' open' : ''}><summary>${icon('inbox')}<span>Views</span>` +
+      `${inView && !viewsOpen() ? `<span class="nav-sub">${esc(inView[1])}</span>` : ''}${icon('chevron', 'fold-chev')}</summary>` +
+      `<ul class="nav">${VIEWS.map(([id, label, ic]) => navItem(id, label, ic)).join('')}</ul></details>` +
       `<div class="nav-heading"><span>Lists</span>` +
       `<button type="button" class="icon-btn sm" data-action="new-list" aria-label="Create new list">${icon('plus')}</button></div>` +
       `<ul class="nav">${state.lists.map((l) => navItem(l.id, l.name, 'list')).join('')}</ul>` +
       `<div class="sidebar-foot">` +
       syncStatusHTML() +
       `<button type="button" class="text-btn" data-action="settings">${icon('settings')}Settings</button>` +
-      `<button type="button" class="text-btn" data-action="export">${icon('download')}Export backup</button>` +
-      `<button type="button" class="text-btn" data-action="import">${icon('upload')}Import backup</button>` +
+      `<button type="button" class="text-btn" data-action="backup-file" aria-haspopup="menu">${icon('download')}Import / Export${icon('chevron', 'fold-chev')}</button>` +
       `</div>`;
   }
 
@@ -796,6 +806,44 @@
       `<button type="button" class="icon-btn review-close" data-action="review-never" title="Don’t ask again" aria-label="Don’t ask again">${icon('close')}</button></div>`;
   }
 
+  // List name: on its own row, smaller type for longer names, cut off after 25 characters
+  // (the full name is in the tooltip). Click it to rename in place.
+  const TITLE_MAX = 25;
+  function titleHTML(v) {
+    const name = v.title;
+    const size = name.length <= 16 ? 'l' : name.length <= 22 ? 'm' : 's';
+    const shown = name.length > TITLE_MAX ? `${name.slice(0, TITLE_MAX).trimEnd()}…` : name;
+    if (v.list && ui.renaming === v.list.id) {
+      return `<form class="title-edit" id="titleForm" autocomplete="off">` +
+        `<input id="titleInput" class="input" value="${esc(ui.renameDraft ?? name)}" maxlength="80" aria-label="List name" required>` +
+        `<button type="submit" class="btn primary">Save</button>` +
+        `<button type="button" class="text-btn" data-action="rename-cancel">Cancel</button></form>`;
+    }
+    // ▾ to the left of the name: switch lists without opening the main menu.
+    const switcher = `<button type="button" class="icon-btn list-switch" data-action="switch-list" title="Switch list" aria-label="Switch list" aria-haspopup="menu" aria-expanded="false">${icon('chevron', 'switch-chev')}</button>`;
+    return `<div class="title-row">${switcher}` + (v.list
+      ? `<h1 class="list-title size-${size}"><button type="button" class="title-btn" data-action="rename-inline" title="${esc(name)} · Click to rename" aria-label="${esc(name)}. Rename list">${esc(shown)}${icon('edit', 'title-edit-ico')}</button></h1>`
+      : `<h1 class="list-title size-${size}" title="${esc(name)}">${esc(shown)}</h1>`) + `</div>`;
+  }
+  function startRename() {
+    const v = viewInfo();
+    if (!v.list) return;
+    ui.renaming = v.list.id;
+    ui.renameDraft = v.list.name;
+    renderMain();
+    const i = $('#titleInput');
+    i?.focus(); i?.select();
+  }
+  function finishRename(saveIt) {
+    const l = listById(ui.renaming);
+    const name = ($('#titleInput')?.value || '').trim().slice(0, 80);
+    ui.renaming = null;
+    ui.renameDraft = null;
+    if (saveIt && l && name && name !== l.name) { l.name = name; save(); render(); toast('List renamed'); }
+    else renderMain();
+    $('.title-btn')?.focus();
+  }
+
   function renderMain() {
     const v = viewInfo();
     const { active, done } = visibleTasks();
@@ -804,7 +852,7 @@
     const pendingText = $('#addInput')?.value || ''; // keep a half-typed task across re-renders
     main.innerHTML =
       `<div class="wrap">` +
-      `<div class="main-head"><h1>${esc(v.title)}</h1><div class="head-actions">` +
+      `<div class="main-head">${titleHTML(v)}<div class="head-actions">` +
       `<label class="sort"><span class="sort-label">Sort</span><span class="select-wrap">` +
       `<select id="sortSel" class="select pill" aria-label="Sort tasks by">` +
       SORTS.map(([k, label]) => `<option value="${k}"${currentSort() === k ? ' selected' : ''}>${label}${state.defaultSort === k ? ' (default)' : ''}</option>`).join('') +
@@ -1468,6 +1516,11 @@
     modal.innerHTML =
       `<form method="dialog" class="modal-form settings-form">` +
       `<h2>Settings</h2>` +
+      `<fieldset class="choices"><legend>AI Brief: your work email</legend>` +
+      `<label for="chatEmail" class="sr-only">Your work email (optional)</label>` +
+      `<input id="chatEmail" class="input" type="email" autocomplete="email" placeholder="you@company.com" value="${esc(state.chatEmail)}">` +
+      `<p class="choices-note">Opens Teams, Google Chat and Gemini in your work account, not a personal one. Teams also opens a chat with yourself with the brief typed in. Stays on this computer.</p>` +
+      `</fieldset>` +
       (rem
         ? `<fieldset class="choices"><legend>Daily reminder</legend>` +
           `<label class="switch-row"><input type="checkbox" id="remOn" role="switch"${rem.on ? ' checked' : ''}>` +
@@ -1507,37 +1560,32 @@
           `</fieldset>`
         : '') +
       (backups
-        ? `<fieldset class="choices"><legend>Backups &amp; archive</legend>` +
+        ? `<details class="choices fold" id="backupsFold"><summary><span class="fold-title">Backups &amp; archive</span>` +
+          `<span class="fold-sub">${backups.length ? `${backups.length} backup${backups.length === 1 ? '' : 's'} · ` : ''}${archived} archived</span>${icon('chevron', 'fold-chev')}</summary>` +
           `<p class="choices-note flush">CheckRow saves a copy of your tasks on this computer once a day and keeps the last 7.</p>` +
           (backups.length
-            ? `<ul class="backup-list">${backups.map((b) => `<li>${icon('history')}<span>${esc(dayLabel(b.day))} · ${backupTasks(b)} task${backupTasks(b) === 1 ? '' : 's'}</span>` +
-              `<button type="button" class="text-btn" data-action="restore-backup" data-day="${esc(b.day)}">Restore</button></li>`).join('')}</ul>`
+            ? `<div class="backup-pick"><label class="sr-only" for="backupSel">Backup to restore</label>` +
+              `<span class="select-wrap block"><select id="backupSel" class="input select"><option value="">Choose a day…</option>` +
+              backups.map((b) => `<option value="${esc(b.day)}">${esc(parseKey(b.day).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))} · ${backupTasks(b)} task${backupTasks(b) === 1 ? '' : 's'}</option>`).join('') +
+              `</select>${icon('chevron', 'select-chev')}</span>` +
+              `<button type="button" class="btn" data-action="restore-backup" id="restoreBtn" hidden>${icon('history')}Restore</button></div>`
             : `<p class="empty-note">No backups yet. The first one is saved within a day.</p>`) +
           `<div class="archive-row">${icon('archive')}<span id="archiveCount">${archived} archived task${archived === 1 ? '' : 's'}</span>` +
           `<button type="button" class="text-btn" data-action="view-archive">View</button>` +
           `<button type="button" class="text-btn" data-action="archive-now"${doneCount ? '' : ' disabled'}>Archive all completed</button></div>` +
           `<p class="choices-note">Completed tasks move to the archive on this computer ${ARCHIVE_DAYS} days after you finish them, so sync never fills up.</p>` +
-          `</fieldset>`
+          `</details>`
         : '') +
+      `<fieldset class="choices"><legend>Theme</legend><div class="choice-row">` +
+      [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]
+        .map(([k, label]) => radio('theme', k, label, '', state.theme === k)).join('') +
+      `</div></fieldset>` +
       (isExtension
         ? `<fieldset class="choices"><legend>Like CheckRow?</legend>` +
           `<div class="share-row"><button type="button" class="btn" data-action="rate">${icon('star')}Rate it</button>` +
           `<button type="button" class="btn" data-action="share">${icon('link')}Copy link to share</button></div>` +
           `<p class="choices-note">Reviews and word of mouth are how people find CheckRow.</p></fieldset>`
         : '') +
-      `<fieldset class="choices"><legend>Default sort order</legend>` +
-      SORTS.map(([k, label]) => radio('defaultSort', k, label, SORT_HELP[k], state.defaultSort === k)).join('') +
-      `<p class="choices-note">Applies to every list. You can still sort one list differently from the menu at the top of that list.</p>` +
-      `</fieldset>` +
-      `<fieldset class="choices"><legend>AI Brief</legend>` +
-      `<label for="chatEmail" class="choice-label">Your work email <span class="optional">(optional)</span></label>` +
-      `<input id="chatEmail" class="input" type="email" autocomplete="email" placeholder="you@company.com" value="${esc(state.chatEmail)}">` +
-      `<p class="choices-note">Opens Teams, Google Chat and Gemini in your work account, not a personal one. Teams also opens a chat with yourself with the brief typed in. Stays on this computer.</p>` +
-      `</fieldset>` +
-      `<fieldset class="choices"><legend>Theme</legend><div class="choice-row">` +
-      [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]
-        .map(([k, label]) => radio('theme', k, label, '', state.theme === k)).join('') +
-      `</div></fieldset>` +
       `<div class="modal-actions"><button value="ok" class="btn primary">Done</button></div>` +
       `</form>`;
     const form = modal.querySelector('form');
@@ -1552,6 +1600,12 @@
       if (n === 'defaultSort') setDefaultSort(e.target.value);
       else if (n === 'theme') { state.theme = e.target.value; save(); applyTheme(); }
       else if (id === 'chatEmail') { state.chatEmail = e.target.value.trim(); save(); }
+      else if (id === 'backupSel') {
+        const btn = $('#restoreBtn', form);
+        btn.hidden = !e.target.value;
+        btn.dataset.day = e.target.value;
+        btn.setAttribute('aria-label', e.target.value ? `Restore the backup from ${dayLabel(e.target.value)}` : 'Restore');
+      }
       else if (id === 'notifyStay') { syncArea.set({ notify: { stay: e.target.checked } }).catch(() => toast('Couldn’t save that setting.')); }
       else if (id === 'badgeOn') { syncArea.set({ badge: { on: e.target.checked } }).catch(() => toast('Couldn’t save that setting.')); }
       else if (id === 'remOn' || n === 'remDay' || id === 'remTime') {
@@ -1724,6 +1778,7 @@
 
   // ---------- Actions ----------
   function selectView(id) {
+    ui.renaming = null;
     state.view = id;
     save();
     document.body.classList.remove('sidebar-open');
@@ -1854,7 +1909,7 @@
     if (!l) return;
     const doneCount = state.tasks.filter((t) => t.listId === l.id && t.done).length;
     openMenu(anchor, [
-      { label: 'Rename list', run: () => renameList(l) },
+      { label: 'Rename list', run: () => startRename() },
       { label: 'Export this list', run: () => exportList(l) },
       { label: 'Delete all completed tasks', disabled: !doneCount, run: () => deleteCompleted(l) },
       { label: state.lists.length > 1 ? 'Delete list' : 'Delete list (need at least one)', danger: true, disabled: state.lists.length < 2, run: () => deleteList(l) },
@@ -1882,7 +1937,7 @@
   function exportList(l) {
     const tasks = state.tasks.filter((t) => t.listId === l.id).map(({ edits, ...t }) => t);
     const slug = l.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'list';
-    downloadJson({ app: 'CheckRow', kind: 'list', exportedAt: new Date().toISOString(), lists: [{ id: l.id, name: l.name }], tasks },
+    downloadJson({ app: 'CheckRow', kind: 'list', exportedAt: new Date().toISOString(), lists: [{ id: l.id, name: l.name }], sortBy: { [l.id]: state.sortBy[l.id] || state.defaultSort }, tasks },
       `checkrow-list-${slug}.json`);
     toast(`“${l.name}” exported. Anyone with CheckRow can import it as a new list.`);
   }
@@ -1994,6 +2049,11 @@
     }));
     const previous = state;
     state = normalize({ ...state, lists: [...state.lists, ...newLists], tasks: [...state.tasks, ...newTasks] });
+    // Each list keeps the sort it had in the file (e.g. "My order" for a checklist in deck order).
+    for (const [oldId, newId] of listMap) {
+      const k = incoming.sortBy && incoming.sortBy[oldId];
+      if (isSort(k) && k !== state.defaultSort) state.sortBy[newId] = k;
+    }
     state.view = newLists[0].id;
     ui.openTaskId = null;
     save();
@@ -2052,8 +2112,27 @@
         break;
       case 'export': exportData(); break;
       case 'import': importFile.click(); break;
+      case 'backup-file':
+        if (menuEl && menuEl.anchor === b) { closeMenu(); break; }
+        openMenu(b, [
+          { label: 'Export backup', icon: 'download', run: () => exportData() },
+          { label: 'Import a file', icon: 'upload', run: () => importFile.click() },
+        ]);
+        break;
     }
   });
+  sidebar.addEventListener('change', (e) => {
+    if (e.target.id === 'defaultSortSel') { setDefaultSort(e.target.value); toast(`Every list now sorts by ${SORTS.find(([k]) => k === e.target.value)[1]}`); }
+  });
+  // Remember open/closed only when the person clicks it (Chrome also fires "toggle" when
+  // the group is drawn already open).
+  let viewsClicked = false;
+  sidebar.addEventListener('click', (e) => { if (e.target.closest('#viewsGroup > summary')) viewsClicked = true; }, true);
+  sidebar.addEventListener('toggle', (e) => {
+    if (e.target.id !== 'viewsGroup' || !viewsClicked) return;
+    viewsClicked = false;
+    try { localStorage.setItem(VIEWS_OPEN_KEY, e.target.open ? '1' : '0'); } catch (err) { /* ignore */ }
+  }, true);
   importFile.addEventListener('change', () => {
     const f = importFile.files && importFile.files[0];
     importFile.value = '';
@@ -2079,6 +2158,18 @@
       } break;
       case 'star': if (t) { t.starred = !t.starred; save(); render(); } break;
       case 'open': if (t) openDetails(t.id); break;
+      case 'rename-inline': startRename(); break;
+      case 'switch-list':
+        if (menuEl && menuEl.anchor === b) { closeMenu(); break; }
+        openMenu(b, [
+          ...state.lists.map((l) => ({ label: l.name, icon: 'list', checked: state.view === l.id, hint: String(openCount(l.id) || ''), run: () => selectView(l.id) })),
+          { type: 'sep' },
+          ...VIEWS.map(([id, label, ic]) => ({ label, icon: ic, checked: state.view === id, hint: String(openCount(id) || ''), run: () => selectView(id) })),
+          { type: 'sep' },
+          { label: 'New list', icon: 'plus', run: () => newList() },
+        ]);
+        break;
+      case 'rename-cancel': finishRename(false); break;
       case 'review-yes': openUrl(storeUrl('review_prompt')); setReviewState({ ...reviewState(), ask: 'never' }); renderMain(); break;
       case 'review-later': {
         const r = reviewState();
@@ -2157,7 +2248,14 @@
       if (ui.openTaskId === t.id) renderDetails();
     }
   });
+  main.addEventListener('submit', (e) => {
+    if (e.target.id !== 'titleForm') return;
+    e.preventDefault();
+    finishRename(true);
+  });
+  main.addEventListener('input', (e) => { if (e.target.id === 'titleInput') ui.renameDraft = e.target.value; });
   main.addEventListener('keydown', (e) => {
+    if (e.target.id === 'titleInput' && e.key === 'Escape') { e.preventDefault(); finishRename(false); return; }
     if (e.target.matches('.task-title') && e.key === 'Enter') {
       e.preventDefault();
       e.target.blur();

@@ -801,3 +801,70 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.5; }
 .import-opt > span { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
 .import-form .check-row { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text); margin: 0 0 8px; }
 .import-form .check-row input { accent-color: var(--accent); }
+
+/* ---------- 0.9.4 layout ---------- */
+/* List header: the name gets its own row; sort, AI Brief and ⋮ sit on the row below. */
+.main-head { flex-direction: column; align-items: stretch; gap: 8px; }
+.main-head .head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.main-head .head-actions .icon-btn[data-action="list-menu"] { margin-left: auto; }
+.main-head h1.list-title { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
+.list-title.size-l { font-size: 24px; }
+.list-title.size-m { font-size: 21px; }
+.list-title.size-s { font-size: 18px; }
+@media (max-width: 560px) {
+  .list-title.size-l { font-size: 22px; }
+  .list-title.size-m { font-size: 19px; }
+  .list-title.size-s { font-size: 17px; }
+}
+.title-btn {
+  font: inherit; color: inherit; letter-spacing: inherit; background: transparent; border: 0; padding: 2px 6px; margin-left: -6px;
+  border-radius: 8px; cursor: text; display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
+}
+.title-btn:hover { background: var(--hover); }
+.title-edit-ico { width: 16px; height: 16px; color: var(--text-2); opacity: 0; flex: none; }
+.title-btn:hover .title-edit-ico, .title-btn:focus-visible .title-edit-ico { opacity: 1; }
+.title-edit { display: flex; gap: 8px; align-items: center; }
+.title-edit .input { flex: 1; min-width: 0; font-size: 18px; font-weight: 600; }
+
+/* Main menu: default sort on top, Views fold-out */
+.side-sort { display: flex; align-items: center; gap: 8px; margin: 4px 12px 12px; font-size: 13px; color: var(--text-2); }
+.side-sort-label { white-space: nowrap; }
+.side-sort .select-wrap { flex: 1; }
+.side-sort .select { width: 100%; height: 36px; padding: 0 32px 0 12px; font-size: 13px; }
+.side-sort .select-chev { right: 10px; }
+.nav-group { margin: 4px 0; }
+.nav-group > summary {
+  list-style: none; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 16px; min-height: 40px;
+  border-radius: 0 20px 20px 0; cursor: pointer; color: var(--text); font-size: 14px; user-select: none;
+}
+.nav-group > summary::-webkit-details-marker { display: none; }
+.nav-group > summary:hover { background: var(--hover); }
+.nav-group > summary .ico { width: 20px; height: 20px; color: var(--text-2); }
+.nav-group > summary span:first-of-type { flex: 1; }
+.nav-sub { font-size: 12px; color: var(--text-2); }
+.fold-chev { width: 16px; height: 16px; margin-left: auto; transition: transform .15s; color: var(--text-2); }
+.nav-group[open] > summary .fold-chev, .fold[open] > summary .fold-chev { transform: rotate(90deg); }
+.nav-group .nav { margin: 0; }
+.nav-group .nav .nav-item { padding-left: 28px; }
+.sidebar-foot .text-btn[data-action="backup-file"] .fold-chev { margin-left: 4px; transform: rotate(90deg); }
+
+/* Settings: Backups & archive fold-out */
+details.fold { border: 1px solid var(--border); border-radius: 12px; padding: 0 14px; }
+details.fold[open] { padding-bottom: 12px; }
+details.fold > summary {
+  list-style: none; display: flex; align-items: center; gap: 10px; min-height: 48px; cursor: pointer;
+}
+details.fold > summary::-webkit-details-marker { display: none; }
+.fold-title { font-weight: 600; font-size: 14px; color: var(--text); }
+.fold-sub { font-size: 12px; color: var(--text-2); }
+.backup-pick { display: flex; gap: 8px; align-items: center; margin: 6px 0 10px; }
+.backup-pick .select-wrap { flex: 1; min-width: 0; }
+.backup-pick .btn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.backup-pick .btn .ico { width: 16px; height: 16px; }
+/* List switcher (▾ left of the name) */
+.title-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.title-row h1.list-title { flex: 1; min-width: 0; }
+.list-switch { flex: none; width: 36px; height: 36px; margin-left: -8px; }
+.switch-chev { width: 20px; height: 20px; transform: rotate(90deg); }
+.list-switch[aria-expanded="true"] .switch-chev { transform: rotate(-90deg); }
+.title-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

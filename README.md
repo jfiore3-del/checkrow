@@ -24,6 +24,8 @@ A clean, Google Workspace–style to-do list that lives in the Chrome side panel
 - **Right-click to add**: highlight text, or right-click a link or page, and choose *Add to CheckRow*. The page link goes in the task's details.
 - **Keyboard shortcut**: Alt+Shift+K opens CheckRow (change it at chrome://extensions/shortcuts).
 - **Safe with two computers**: each part of a task remembers when it last changed, so editing the name on one computer and the date on another keeps both, even if they sync late.
+- **List header**: click a list's name to rename it in place; long names shrink and are cut off after 25 characters. The ▾ beside the name switches lists without opening the menu.
+- **Main menu**: default sort at the top; All lists, Today and Starred in a Views dropdown; Import / Export under Settings.
 - **Search** across titles and notes.
 - **Spread the word**: after 20 completed tasks, a one-time card asks for a store review ("Not now" asks once more later; × never). Settings has *Rate it* and *Copy link to share*.
 - **Undo** for completing, deleting and clearing tasks.
