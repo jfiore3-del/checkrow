@@ -806,13 +806,13 @@
       `<button type="button" class="icon-btn review-close" data-action="review-never" title="Don’t ask again" aria-label="Don’t ask again">${icon('close')}</button></div>`;
   }
 
-  // List name: on its own row, smaller type for longer names, cut off after 25 characters
-  // (the full name is in the tooltip). Click it to rename in place.
-  const TITLE_MAX = 25;
+  // List name: on its own row, using all of it. fitTitle() steps the type down until the
+  // name fits; only if it still doesn't is it cut off with "…" (full name in the tooltip).
+  // Click it to rename in place.
   function titleHTML(v) {
     const name = v.title;
-    const size = name.length <= 16 ? 'l' : name.length <= 22 ? 'm' : 's';
-    const shown = name.length > TITLE_MAX ? `${name.slice(0, TITLE_MAX).trimEnd()}…` : name;
+    const size = 'l';
+    const shown = name;
     if (v.list && ui.renaming === v.list.id) {
       return `<form class="title-edit" id="titleForm" autocomplete="off">` +
         `<input id="titleInput" class="input" value="${esc(ui.renameDraft ?? name)}" maxlength="80" aria-label="List name" required>` +
@@ -822,8 +822,25 @@
     // ▾ to the left of the name: switch lists without opening the main menu.
     const switcher = `<button type="button" class="icon-btn list-switch" data-action="switch-list" title="Switch list" aria-label="Switch list" aria-haspopup="menu" aria-expanded="false">${icon('chevron', 'switch-chev')}</button>`;
     return `<div class="title-row">${switcher}` + (v.list
-      ? `<h1 class="list-title size-${size}"><button type="button" class="title-btn" data-action="rename-inline" title="${esc(name)} · Click to rename" aria-label="${esc(name)}. Rename list">${esc(shown)}${icon('edit', 'title-edit-ico')}</button></h1>`
-      : `<h1 class="list-title size-${size}" title="${esc(name)}">${esc(shown)}</h1>`) + `</div>`;
+      ? `<h1 class="list-title size-${size}"><button type="button" class="title-btn" data-action="rename-inline" title="${esc(name)} · Click to rename" aria-label="${esc(name)}. Rename list"><span class="title-text">${esc(shown)}</span>${icon('edit', 'title-edit-ico')}</button></h1>`
+      : `<h1 class="list-title size-${size}" title="${esc(name)}"><span class="title-text">${esc(shown)}</span></h1>`) + `</div>`;
+  }
+  const TITLE_SIZES = ['l', 'm', 's', 'xs'];
+  function fitTitle() {
+    const h = main.querySelector('h1.list-title');
+    const text = h && h.querySelector('.title-text');
+    if (!text) return;
+    const btn = h.querySelector('.title-btn');
+    // First check at full size with the pencil in line; long names give its space back.
+    btn?.classList.remove('tight');
+    h.classList.remove(...TITLE_SIZES.map((x) => `size-${x}`));
+    h.classList.add('size-l');
+    if (btn && text.scrollWidth > text.clientWidth + 1) btn.classList.add('tight');
+    for (const sz of TITLE_SIZES) {
+      h.classList.remove(...TITLE_SIZES.map((x) => `size-${x}`));
+      h.classList.add(`size-${sz}`);
+      if (text.scrollWidth <= text.clientWidth + 1) break; // fits at this size
+    }
   }
   function startRename() {
     const v = viewInfo();
@@ -881,6 +898,7 @@
         : '') +
       `</div>`;
     if (pendingText) $('#addInput').value = pendingText;
+    fitTitle();
     if (showReviewAsk() && !ui.search) main.insertAdjacentHTML('beforeend', reviewAskHTML());
     sizeTitles();
   }
@@ -910,7 +928,7 @@
   }
   let titleWidth = 0;
   new ResizeObserver(() => {
-    if (main.clientWidth !== titleWidth) { titleWidth = main.clientWidth; sizeTitles(); }
+    if (main.clientWidth !== titleWidth) { titleWidth = main.clientWidth; sizeTitles(); fitTitle(); }
   }).observe(main);
   main.addEventListener('focusin', (e) => { if (e.target.matches('.task-title')) sizeTitle(e.target); });
   // Expand on hover, after a short pause so sweeping the mouse across the list
