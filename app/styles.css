@@ -882,3 +882,12 @@ h1.list-title > .title-text { display: block; }
   position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
   box-sizing: content-box; padding: 3px 4px 3px 10px; background: linear-gradient(to right, transparent, var(--hover) 8px);
 }
+
+/* Steps: one line, shrinking 14 → 13 → 12px, then wrapping (sizeStep) */
+.step { align-items: flex-start; }
+.step-check, .step-del { margin-top: 2px; }
+textarea.step-text {
+  display: block; resize: none; overflow: hidden; line-height: 20px; padding: 6px 2px;
+  white-space: pre; overflow-wrap: normal;
+}
+textarea.step-text.wraps { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 18px; }

@@ -1009,20 +1009,20 @@
       `<button type="button" class="icon-btn" data-action="close-details" aria-label="Close details">${icon('close')}</button></div>` +
       `<div class="field"><label for="dTitle">Title</label>` +
       `<input id="dTitle" class="input title-input" value="${esc(t.title)}" placeholder="Title" maxlength="500"></div>` +
-      `<div class="field"><label for="dNotes">Details</label>` +
-      `<textarea id="dNotes" class="input" rows="4" placeholder="Add details" maxlength="2000">${esc(t.notes)}</textarea></div>` +
       `<div class="field"><span class="field-label" id="stepsLabel">Steps${t.steps.length ? ` <span class="steps-count">${t.steps.filter((x) => x.done).length} of ${t.steps.length}</span>` : ''}</span>` +
       (t.steps.length
         ? `<ul class="steps" aria-labelledby="stepsLabel">${t.steps.map((x, i) =>
           `<li class="step${x.done ? ' is-done' : ''}" data-i="${i}">` +
           `<button type="button" class="step-check" data-action="step-toggle" role="checkbox" aria-checked="${x.done}" aria-label="Done: ${esc(x.text || 'step')}">${icon('check')}</button>` +
-          `<input id="dStep-${i}" class="step-text" value="${esc(x.text)}" maxlength="${STEP_MAX}" aria-label="Step ${i + 1}">` +
+          `<textarea id="dStep-${i}" class="step-text" rows="1" maxlength="${STEP_MAX}" aria-label="Step ${i + 1}" spellcheck="false">${esc(x.text)}</textarea>` +
           `<button type="button" class="icon-btn step-del" data-action="step-del" title="Remove step" aria-label="Remove step: ${esc(x.text || 'step')}">${icon('close')}</button></li>`).join('')}</ul>`
         : '') +
       (t.steps.length < STEPS_MAX
         ? `<div class="step-add-row">${icon('plus')}<input id="dStepAdd" class="step-add" placeholder="Add a step" maxlength="${STEP_MAX}" aria-label="Add a step"></div>`
         : `<p class="field-help">That’s the most steps a task can have (${STEPS_MAX}).</p>`) +
       `</div>` +
+      `<div class="field"><label for="dNotes">Details</label>` +
+      `<textarea id="dNotes" class="input" rows="4" placeholder="Add details" maxlength="2000">${esc(t.notes)}</textarea></div>` +
       `<div class="field"><label for="dDue">Due date</label><div class="row">` +
       `<input id="dDue" class="input" type="date" value="${esc(t.due)}">` +
       (t.due ? `<button type="button" class="text-btn" data-action="clear-due">Clear</button>` : '') +
@@ -1064,6 +1064,7 @@
       `<button type="button" class="btn" data-action="details-done">${icon('check')}${t.done ? 'Mark not complete' : 'Mark complete'}</button>` +
       `<button type="button" class="btn danger" data-action="delete-task">${icon('trash')}Delete</button>` +
       `</div>`;
+    sizeSteps();
     if (keep) details.querySelector(keep)?.focus();
     syncScrim();
   }
@@ -2348,11 +2349,30 @@
     else if (e.target.matches('.step-text')) {
       const x = t.steps[Number(e.target.closest('.step').dataset.i)];
       if (!x) return;
+      if (/[\r\n]/.test(e.target.value)) e.target.value = e.target.value.replace(/\s*[\r\n]+\s*/g, ' ');
       x.text = e.target.value;
+      sizeStep(e.target);
     } else return;
     save();
     renderMain();
   });
+  // Long steps: try one line at 14px, then 13px, then 12px; past that, wrap onto more lines.
+  const STEP_SIZES = [14, 13, 12];
+  function sizeStep(el) {
+    el.style.height = 'auto';
+    el.wrap = 'off';
+    el.classList.remove('wraps');
+    let fits = false;
+    for (const px of STEP_SIZES) {
+      el.style.fontSize = `${px}px`;
+      if (el.scrollWidth <= el.clientWidth + 1) { fits = true; break; }
+    }
+    if (!fits) { el.wrap = 'soft'; el.classList.add('wraps'); }
+    el.style.height = `${el.scrollHeight}px`;
+  }
+  function sizeSteps() { details.querySelectorAll('.step-text').forEach(sizeStep); }
+  new ResizeObserver(() => sizeSteps()).observe(details);
+
   function addStep(t, input) {
     const text = input.value.trim().slice(0, STEP_MAX);
     input.value = ''; // cleared first, so the re-render's blur doesn't add it again
@@ -2400,6 +2420,12 @@
       const i = Number(e.target.closest('.step').dataset.i);
       const text = e.target.value.trim();
       t.steps = text ? t.steps.map((x, j) => (j === i ? { ...x, text } : x)) : t.steps.filter((_, j) => j !== i);
+      save();
+      renderMain();
+      // Edited text needs no redraw (and redrawing while focus moves on would drop it).
+      // An emptied step is removed once focus has landed wherever it was going.
+      if (!text) setTimeout(() => renderDetails());
+      return;
     }
     else if (e.target.name === 'dRemindMode') {
       const mode = e.target.value;
