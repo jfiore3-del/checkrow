@@ -6,7 +6,7 @@ CheckRow is a to-do list extension for Google Chrome. It has no servers: the dev
 
 ## What CheckRow stores
 
-- Your lists and tasks (titles, notes, checklist steps, due dates, repeat settings, reminder times, priorities, stars and completion) and your settings (default sort order, theme, toolbar count, and daily reminder days and time).
+- Your lists and tasks (titles, notes, sub-tasks, due dates, repeat settings, reminder times, priorities, stars and completion) and your settings (default sort order, theme, toolbar count, and daily reminder days and time).
 - These are kept with the browser's extension storage. If you're signed in to your browser with sync turned on, the browser syncs them across your computers through your browser account, under Google's privacy policy. If sync is off, they stay on that computer.
 - If you enter a work email in Settings, it is stored only on that computer and is not synced.
 - When you choose **Add to CheckRow** from the right-click menu, CheckRow saves the text you highlighted (or the link or page title) and the address of that page or link as a task. It reads nothing from the page unless you choose this, and it's stored like any other task.

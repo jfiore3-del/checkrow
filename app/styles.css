@@ -11,6 +11,8 @@
   --accent-weak: #E6EEFD;
   --accent-text: #1F57C9;
   --done: #2F6FEB;
+  --progress: #1E8E3E;
+  --progress-track: #E6F4EA;
   --danger: #C5221F;
   --danger-weak: #FCE8E6;
   --pri-1: #1F57C9;
@@ -40,6 +42,10 @@
     --accent-weak: #22324F;
     --accent-text: #A9C3FF;
     --done: #6E9BFF;
+  --progress: #5BB974;
+  --progress-track: #1E3A28;
+    --progress: #5BB974;
+    --progress-track: #1E3A28;
     --danger: #FF8A80;
     --danger-weak: #3A2422;
     --pri-1: #A9C3FF;
@@ -891,3 +897,39 @@ textarea.step-text {
   white-space: pre; overflow-wrap: normal;
 }
 textarea.step-text.wraps { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 18px; }
+
+/* Sub-task progress under a task */
+.progress {
+  display: flex; align-items: center; gap: 10px; width: 100%; max-width: 360px;
+  margin: 6px 0 2px; padding: 2px 0; border: 0; background: transparent; cursor: pointer; text-align: left; font: inherit;
+}
+.progress-track { flex: 1; min-width: 60px; height: 6px; border-radius: 999px; background: var(--progress-track); overflow: hidden; }
+.progress-fill { display: block; height: 100%; border-radius: inherit; background: var(--progress); transition: width .3s ease-out; }
+.progress-text { flex: none; font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.progress.complete .progress-text { color: var(--progress); font-weight: 500; }
+.progress:hover .progress-text { color: var(--text); }
+.progress:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) { .progress-fill { transition: none; } }
+.task.is-done .progress { display: none; }
+
+/* Chips never overflow the row: a long list name is cut with … (full name on hover) */
+.meta { min-width: 0; }
+.meta .chip { max-width: 100%; }
+.chip-list { min-width: 0; }
+.chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* Reminder Off / Once / Repeating: three across, and fits the narrowest panel */
+.field.remind .seg { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.seg-opt span { min-width: 0; white-space: nowrap; }
+@media (max-width: 380px) { .field.remind .seg-opt .ico { display: none; } }
+/* Narrow panels: the progress label moves under the bar instead of overflowing */
+.progress { flex-wrap: wrap; row-gap: 3px; }
+.progress-track { flex: 1 1 90px; }
+.progress-text { flex: 0 0 auto; }
+/* Priority Low / Medium / High: icons hide on very narrow panels so the words fit */
+@media (max-width: 380px) { .seg-opt .ico { display: none; } .seg-opt span { padding: 0 2px; font-size: 12px; } }
+/* A chip that can't fit on one line wraps instead of being clipped (list names still use …) */
+.meta .chip { height: auto; min-height: 24px; white-space: normal; line-height: 16px; padding-top: 3px; padding-bottom: 3px; text-align: left; }
+.meta .chip .ico { flex: none; }
+/* AI Brief / chat buttons: labels wrap rather than clip on the narrowest panels */
+.ai-btn { min-width: 0; white-space: normal; line-height: 1.2; text-align: center; height: auto; min-height: 40px; padding-top: 6px; padding-bottom: 6px; }

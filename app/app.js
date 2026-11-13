@@ -699,7 +699,7 @@
     const active = state.view === id;
     const n = openCount(id);
     return `<li><button type="button" class="nav-item${active ? ' active' : ''}" data-view="${esc(id)}"${active ? ' aria-current="page"' : ''}>` +
-      `${icon(ic)}<span class="nav-label">${esc(label)}</span>${n ? `<span class="count" aria-label="${n} open">${n}</span>` : ''}</button></li>`;
+      `${icon(ic)}<span class="nav-label" title="${esc(label)}">${esc(label)}</span>${n ? `<span class="count" aria-label="${n} open">${n}</span>` : ''}</button></li>`;
   }
 
   const VIEWS_OPEN_KEY = 'checkrow:viewsOpen';
@@ -743,13 +743,9 @@
     } else if (t.remind && !t.done) {
       meta.push(`<button type="button" class="chip chip-btn${remindPast(t.remind) ? ' chip-muted' : ''}" data-action="open-remind" aria-label="Reminder ${esc(fmtRemind(t.remind))}. Change reminder">${icon('bell')}${esc(fmtRemind(t.remind))}</button>`);
     }
-    if (t.steps && t.steps.length) {
-      const n = t.steps.filter((x) => x.done).length;
-      meta.push(`<button type="button" class="chip chip-btn${n === t.steps.length ? ' chip-done' : ''}" data-action="open-steps" aria-label="${n} of ${t.steps.length} steps done. Show steps">${icon('steps')}${n}/${t.steps.length}</button>`);
-    }
     if (!v.list) {
       const l = listById(t.listId);
-      if (l) meta.push(`<span class="chip">${esc(l.name)}</span>`);
+      if (l) meta.push(`<span class="chip chip-list" title="${esc(l.name)}"><span class="chip-text">${esc(l.name)}</span></span>`);
     }
     if (t.notes.trim()) meta.push(`<span class="notes-preview">${esc(t.notes.trim().split('\n')[0])}</span>`);
     const label = esc(t.title || 'Untitled task');
@@ -761,6 +757,7 @@
       `<div class="task-body">` +
       `<textarea class="task-title" rows="1" placeholder="Title" aria-label="Task title" spellcheck="false"${t.done ? ' readonly' : ''}>${esc(t.title)}</textarea>` +
       (meta.length ? `<div class="meta" data-action="open">${meta.join('')}</div>` : '') +
+      progressHTML(t) +
       `</div>` +
       (t.starred ? `<span class="star-badge" aria-hidden="true">${icon('star')}</span>` : '') +
       `<div class="row-actions" id="drawer-${esc(t.id)}">` +
@@ -784,6 +781,21 @@
     else if (v.id === 'starred') { ic = 'star'; title = 'No starred tasks'; text = 'Star a task to keep it here.'; }
     else if (v.id === 'today') { ic = 'calendar'; title = 'Nothing due today'; text = 'Tasks with a due date of today or earlier show up here.'; }
     return `<div class="empty">${icon(ic)}<p class="empty-title">${title}</p><p>${text}</p></div>`;
+  }
+
+  // Sub-task progress under a task: a green bar filling left to right, with the
+  // percentage and how many are left. Click it to open the sub-tasks.
+  function progressHTML(t) {
+    if (t.done || !t.steps || !t.steps.length) return '';
+    const total = t.steps.length;
+    const done = t.steps.filter((x) => x.done).length;
+    const pct = Math.round((done / total) * 100);
+    const left = total - done;
+    const text = left ? `${pct}% · ${left} sub-task${left === 1 ? '' : 's'} left` : '100% · All sub-tasks done';
+    return `<button type="button" class="progress${left ? '' : ' complete'}" data-action="open-steps" aria-label="${done} of ${total} sub-tasks done. Show sub-tasks">` +
+      `<span class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Sub-tasks done">` +
+      `<span class="progress-fill" style="width:${pct}%"></span></span>` +
+      `<span class="progress-text">${text}</span></button>`;
   }
 
   // ---------- Asking for a review (once, gently) ----------
@@ -1009,17 +1021,17 @@
       `<button type="button" class="icon-btn" data-action="close-details" aria-label="Close details">${icon('close')}</button></div>` +
       `<div class="field"><label for="dTitle">Title</label>` +
       `<input id="dTitle" class="input title-input" value="${esc(t.title)}" placeholder="Title" maxlength="500"></div>` +
-      `<div class="field"><span class="field-label" id="stepsLabel">Steps${t.steps.length ? ` <span class="steps-count">${t.steps.filter((x) => x.done).length} of ${t.steps.length}</span>` : ''}</span>` +
+      `<div class="field"><span class="field-label" id="stepsLabel">Sub-tasks${t.steps.length ? ` <span class="steps-count">${t.steps.filter((x) => x.done).length} of ${t.steps.length}</span>` : ''}</span>` +
       (t.steps.length
         ? `<ul class="steps" aria-labelledby="stepsLabel">${t.steps.map((x, i) =>
           `<li class="step${x.done ? ' is-done' : ''}" data-i="${i}">` +
-          `<button type="button" class="step-check" data-action="step-toggle" role="checkbox" aria-checked="${x.done}" aria-label="Done: ${esc(x.text || 'step')}">${icon('check')}</button>` +
-          `<textarea id="dStep-${i}" class="step-text" rows="1" maxlength="${STEP_MAX}" aria-label="Step ${i + 1}" spellcheck="false">${esc(x.text)}</textarea>` +
-          `<button type="button" class="icon-btn step-del" data-action="step-del" title="Remove step" aria-label="Remove step: ${esc(x.text || 'step')}">${icon('close')}</button></li>`).join('')}</ul>`
+          `<button type="button" class="step-check" data-action="step-toggle" role="checkbox" aria-checked="${x.done}" aria-label="Done: ${esc(x.text || 'sub-task')}">${icon('check')}</button>` +
+          `<textarea id="dStep-${i}" class="step-text" rows="1" maxlength="${STEP_MAX}" aria-label="Sub-task ${i + 1}" spellcheck="false">${esc(x.text)}</textarea>` +
+          `<button type="button" class="icon-btn step-del" data-action="step-del" title="Remove sub-task" aria-label="Remove sub-task: ${esc(x.text || 'sub-task')}">${icon('close')}</button></li>`).join('')}</ul>`
         : '') +
       (t.steps.length < STEPS_MAX
-        ? `<div class="step-add-row">${icon('plus')}<input id="dStepAdd" class="step-add" placeholder="Add a step" maxlength="${STEP_MAX}" aria-label="Add a step"></div>`
-        : `<p class="field-help">That’s the most steps a task can have (${STEPS_MAX}).</p>`) +
+        ? `<div class="step-add-row">${icon('plus')}<input id="dStepAdd" class="step-add" placeholder="Add a sub-task" maxlength="${STEP_MAX}" aria-label="Add a sub-task"></div>`
+        : `<p class="field-help">That’s the most sub-tasks a task can have (${STEPS_MAX}).</p>`) +
       `</div>` +
       `<div class="field"><label for="dNotes">Details</label>` +
       `<textarea id="dNotes" class="input" rows="4" placeholder="Add details" maxlength="2000">${esc(t.notes)}</textarea></div>` +

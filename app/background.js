@@ -239,7 +239,7 @@ async function showDueTaskReminders() {
 async function showTaskReminder(id, v) {
   const today = dayKey(new Date());
   const dueText = !v.d ? '' : v.d < today ? 'Overdue' : v.d === today ? 'Due today' : `Due ${new Date(`${v.d}T00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`;
-  const steps = Array.isArray(v.k) && v.k.length ? `${v.k.filter((s) => s && s[1]).length} of ${v.k.length} steps done` : '';
+  const steps = Array.isArray(v.k) && v.k.length ? `${v.k.filter((s) => s && s[1]).length} of ${v.k.length} sub-tasks done` : '';
   await chrome.notifications.create(`${TASK_NOTE}${id}-${Date.now()}`, {
     type: 'basic',
     iconUrl: 'icons/checkrow-128.png',
