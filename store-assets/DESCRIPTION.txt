@@ -1,0 +1,57 @@
+✅ CheckRow is a to-do list with reminders that lives in Chrome's side panel, right next to whatever you're working on. No account. No sign-in. No servers. Just your list, always one click away.
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+🗂️ ORGANIZE
+• Lists for work, home and everything in between, plus Today, Starred and All tasks views
+• Switch lists in one click from the ▾ next to the list name
+• Rename a list right where it sits: click the name, type, done
+• Due dates and priorities you set as you type and change right on the task
+• 🔁 Repeating tasks: daily, every weekday, weekly, monthly or yearly
+• 🧩 Sub-tasks: break big tasks into small ones, with a green progress bar that fills in as you go (“60% · 2 sub-tasks left”)
+
+⏰ STAY ON TOP OF IT
+• Reminders on any task: once at the exact time you choose, or on a repeating schedule
+• Act right from the notification: 😴 Snooze 1 hour or ✔️ Mark complete
+• Option to keep reminders on screen until you deal with them
+• 📅 Add any task to Google Calendar, Outlook or any calendar app (.ics)
+• A daily reminder on your work days to plan your day
+• A count on the toolbar icon of what's overdue or due today
+• ✨ AI Brief: one click turns your list into a morning brief with your AI assistant, or sends it to your team chat
+
+⚡ FAST TO USE
+• ⌨️ Alt+Shift+K opens CheckRow from anywhere
+• 🖱️ Right-click any text, link or page and choose “Add to CheckRow”
+• Long task names expand when you hover, and the ⋮ drawer keeps every option tidy
+• Open a full tab for a bigger three-pane view
+• Light and dark themes
+
+🔒 YOUR DATA STAYS YOURS
+• Syncs across your computers through your Chrome account, with nothing to sign in to
+• Edit on two computers? Changes merge field by field, so nothing gets lost
+• 💾 Daily backups and an archive of older completed tasks, kept on your computer
+• Export everything or just one list. Import a file as new lists, or restore it all
+• 🚫 No ads, no tracking, no analytics. The developer never sees your tasks.
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+📜 WHAT'S NEW
+
+0.9.6 📊 Progress bar under tasks with sub-tasks. “Steps” are now “Sub-tasks.” Tidier labels that always fit.
+0.9.5 Task details reordered: title, sub-tasks, then details. Long sub-tasks shrink, then wrap.
+0.9.4 Rename lists inline, switch lists from the header, full-width list names, cleaner menu and Settings.
+0.9.3 Import a file as new lists, export a single list, plus easy Rate and Share links.
+0.9.2 🐛 Fixed typed dates and times getting cut off mid-typing.
+0.9.1 One simple Reminder control: Off, Once or Repeating.
+0.9.0 ⏰ Repeating reminders, Snooze and Mark complete on notifications, Add to calendar.
+0.8.0 🧩 Checklists, per-task reminders, right-click “Add to CheckRow,” Alt+Shift+K, smarter two-computer sync.
+0.7.1 🐛 Fixed the daily reminder skipping after a time change.
+0.7.0 🔁 Repeating tasks, daily backups, archive and the toolbar count.
+0.6.9 Long task names expand on hover.
+0.6.8 The ⋮ options drawer and wrapping task names.
+0.6.7 Completing and deleting tasks made obvious.
+0.6.6 🚀 First release: lists, due dates, priorities, sync, AI Brief and the daily reminder.
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+Like CheckRow? A ⭐⭐⭐⭐⭐ review helps other people find it. Thanks for checking us out! ✅
